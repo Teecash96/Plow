@@ -1,0 +1,92 @@
+@import "tailwindcss";
+
+:root {
+  --background: #000000;
+  --foreground: #f4f4f5;
+  --muted: #9b9b9b;
+  --surface: #181818;
+  --surface-raised: #1f1f1f;
+  --surface-border: #6a6a6a;
+  --brand: #f0b90b;
+  --positive: #39c98a;
+  --warning: #f2b84b;
+  --negative: #f06c6c;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-surface-border: var(--surface-border);
+  --color-brand: var(--brand);
+  --color-positive: var(--positive);
+  --color-warning: var(--warning);
+  --color-negative: var(--negative);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+  overflow-x: hidden;
+}
+
+body {
+  min-height: 100vh;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), sans-serif;
+  overflow-x: hidden;
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+input,
+select,
+textarea {
+  max-width: 100%;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--brand) 35%, transparent);
+  color: var(--foreground);
+}
+
+.hero-title {
+  background-image: linear-gradient(90deg, #ffffff 0%, #9b9b9b 100%);
+  background-clip: text;
+  color: transparent;
+}
+
+.word-reveal {
+  /* Keep the pre-reveal state readable while the animation is in progress. */
+  color: #767676;
+  transition: color 700ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.word-reveal[data-visible="true"] {
+  color: var(--foreground);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
