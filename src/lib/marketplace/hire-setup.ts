@@ -47,16 +47,25 @@ export function getHireSetupStatus(agent?: Agent): HireSetupStatus {
     {
       key: "x402-resource",
       label: "x402 resource",
-      state: x402.resourceUrl && erc.networkConfigured ? "ready" : "blocked",
-      detail: x402.resourceUrl && erc.networkConfigured
-        ? "Resource URL is configured and will be challenged per job."
-        : "Set X402_RESOURCE or NEXT_PUBLIC_X402_RESOURCE_URL.",
+      state: x402.resourceUrl ? "ready" : "blocked",
+      detail: x402.resourceUrl
+        ? x402.resourceUrl.startsWith("/")
+          ? `Internal resource at ${x402.resourceUrl} — no facilitator URL is needed.`
+          : x402.facilitatorConfigured
+            ? "Resource URL is configured and facilitator metadata is set."
+            : "Resource URL is configured. For an internal /api/x402 route, the facilitator URL is not needed."
+        : "Set NEXT_PUBLIC_X402_RESOURCE_URL to /api/x402/resource for the in-app resource.",
     },
     {
       key: "x402-facilitator",
       label: "x402 facilitator",
-      state: x402.facilitatorConfigured ? "ready" : "optional",
-      detail: x402.facilitatorConfigured ? "Facilitator URL is configured." : "Optional when the resource handles x402 settlement directly.",
+      state: x402.resourceUrl && x402.resourceUrl.startsWith("/") ? "ready" : x402.facilitatorConfigured ? "ready" : "optional",
+      detail:
+        x402.resourceUrl && x402.resourceUrl.startsWith("/")
+          ? "The internal resource settles via X402_FACILITATOR_KEY (server side)."
+          : x402.facilitatorConfigured
+            ? "Facilitator URL is configured."
+            : "Optional when the resource handles x402 settlement directly.",
     },
     {
       key: "rpc",
@@ -83,6 +92,23 @@ export function getHireSetupStatus(agent?: Agent): HireSetupStatus {
       detail: combinedSettlementEnabled
         ? "x402 service settlement and ERC 8183 escrow are explicitly enabled."
         : "Set NEXT_PUBLIC_HIRE_COMBINED_SETTLEMENT=true only after both transfers are tested together.",
+    },
+    {
+      key: "x402-payee",
+      label: "x402 payee",
+      state: process.env.X402_PAYEE_ADDRESS || process.env.NEXT_PUBLIC_X402_PAYEE_ADDRESS ? "ready" : "blocked",
+      detail:
+        process.env.X402_PAYEE_ADDRESS || process.env.NEXT_PUBLIC_X402_PAYEE_ADDRESS
+          ? "The resource pays the configured agent wallet."
+          : "Set X402_PAYEE_ADDRESS (server side) to the agent wallet that receives payment.",
+    },
+    {
+      key: "x402-facilitator-key",
+      label: "x402 facilitator signer",
+      state: process.env.X402_FACILITATOR_KEY ? "ready" : "blocked",
+      detail: process.env.X402_FACILITATOR_KEY
+        ? "The server-held facilitator key is configured for settlement."
+        : "Set X402_FACILITATOR_KEY (server only) so the resource can push settlement transactions.",
     },
   ];
 

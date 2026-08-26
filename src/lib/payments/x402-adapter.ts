@@ -1,10 +1,10 @@
 import { x402Client, x402HTTPClient } from "@x402/core/client";
 import type { PaymentPayload, PaymentRequired, PaymentRequirements } from "@x402/core/types";
-import { ExactEvmScheme, toClientEvmSigner } from "@x402/evm";
+import { ExactEvmScheme, PERMIT2_ADDRESS, toClientEvmSigner } from "@x402/evm";
 import { decodePaymentResponseHeader } from "@x402/core/http";
 import type { Address, PublicClient } from "viem";
 import { isAddress } from "viem";
-import { getERC8183Config, type ConnectedBscWallet, type ERC8183Network } from "@/lib/chain/erc8183-adapter";
+import { getERC8183Config, ensureERC20Allowance, type ConnectedBscWallet, type ERC8183Network } from "@/lib/chain/erc8183-adapter";
 
 export interface X402Config {
   resourceUrl?: string;
@@ -317,6 +317,22 @@ export async function settleX402Payment(input: {
     return { status: "rejected", reason: input.verification.reason ?? "The x402 challenge was not verified." };
   }
   try {
+    // The $U token does not implement EIP-3009, so the challenge uses the
+    // permit2 asset transfer method. Permit2 spends need a one-time ERC-20
+    // approval from the buyer to the Permit2 contract before settling.
+    const requirement = input.verification.requirement;
+    const asset = requirement.asset as Address | undefined;
+    const permit2Amount = requirement.amount ? BigInt(requirement.amount) : undefined;
+    if (asset && permit2Amount && requirement.extra?.assetTransferMethod === "permit2") {
+      await ensureERC20Allowance({
+        walletClient: input.wallet.walletClient,
+        publicClient: input.publicClient,
+        account: input.wallet.account,
+        spender: PERMIT2_ADDRESS,
+        amount: permit2Amount,
+        tokenAddress: asset,
+      });
+    }
     const client = createX402Client(input.wallet, input.publicClient);
     const payload = await client.createPaymentPayload(input.paymentRequired);
     const httpClient = new x402HTTPClient(client);

@@ -2,6 +2,17 @@
 
 The live hire path is disabled until the deployment configuration is complete. This is deliberate. The application must not create a job or accept a payment when it cannot prove the target contract, token, network, and x402 resource.
 
+## Known deployments
+
+The bnbagent-sdk v1 stack ships deployed ERC 8183 contracts. These were verified onchain: `paymentToken()` matches the $U token and `getJob`/`jobCounter` respond.
+
+| Network | AgenticCommerce | Payment token |
+| --- | --- | --- |
+| BSC Mainnet (56) | `0xea4daa3100a767e86fded867729ae7446476eba6` | `0xcE24439F2D9C6a2289F741120FE202248B666666` ($U, 18 decimals) |
+| BSC Testnet (97) | `0xa206c0517b6371c6638cd9e4a42cc9f02a33b0de` | `0xc70b8741b8b07a6d61e54fd4b20f22fa648e5565` ($U testnet) |
+
+The v1 deployment pattern sets the EvaluatorRouter as evaluator + hook for jobs created through the SDK (`createJob` defaults both to the Router). If you create a job with the buyer wallet as evaluator instead, the router-based dispute policy does not apply.
+
 ## Required variables
 
 For a browser wallet, use the `NEXT_PUBLIC_` form. The unprefixed form is also accepted by the server adapter for server side checks.

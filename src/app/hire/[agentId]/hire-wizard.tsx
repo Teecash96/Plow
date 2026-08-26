@@ -289,6 +289,7 @@ export function HireWizard({ agent, agentId }: HireWizardProps) {
         publicClient: wallet.publicClient,
         account: wallet.account,
         jobId: BigInt(created.jobId),
+        amount,
       });
       updateLocalJob(pendingJob.id, {
         status: "active",

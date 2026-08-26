@@ -36,19 +36,20 @@ const DEFAULT_RPC_URL = "https://bsc.publicnode.com";
 const REQUEST_TIMEOUT_MS = 10_000;
 
 /**
- * The ABI follows the reference interface in ERC 8183. The EIP is still a
- * draft and does not publish an official BSC deployment, so all addresses
- * remain configuration values and the adapter is disabled by default.
+ * ABI for the deployed AgenticCommerce kernel (bnbagent-sdk v1 stack).
+ * Deployments: bsc-mainnet 0xea4daa3100a767e86fded867729ae7446476eba6,
+ * bsc-testnet 0xa206c0517b6371c6638cd9e4a42cc9f02a33b0de. Addresses remain
+ * configuration values and the adapter stays disabled until they are set.
  */
 export const ERC8183_ABI = parseAbi([
   "function createJob(address provider, address evaluator, uint256 expiredAt, string description, address hook) returns (uint256)",
   "function setBudget(uint256 jobId, uint256 amount, bytes optParams)",
-  "function fund(uint256 jobId, bytes optParams)",
-  "function jobs(uint256 jobId) view returns (address client, address provider, address evaluator, string description, uint256 budget, uint256 expiredAt, uint8 status, address hook)",
+  "function fund(uint256 jobId, uint256 expectedBudget, bytes optParams)",
+  "function getJob(uint256 jobId) view returns ((uint256 id, address client, address provider, address evaluator, string description, uint256 budget, uint256 expiredAt, uint8 status, address hook, uint256 submittedAt, bytes deliverable))",
   "function paymentToken() view returns (address)",
   "function jobCounter() view returns (uint256)",
   "event JobCreated(uint256 indexed jobId, address indexed client, address indexed provider, address evaluator, uint256 expiredAt, address hook)",
-  "event JobFunded(uint256 indexed jobId, address indexed client, uint256 amount)",
+  "event JobFunded(uint256 indexed jobId, address indexed client, address payer, uint256 amount)",
 ]);
 
 export const ERC20_ABI = parseAbi([
@@ -329,13 +330,14 @@ export async function fundERC8183Job(input: {
   publicClient: PublicClient;
   account: Address;
   jobId: bigint;
+  amount: bigint;
   optParams?: `0x${string}`;
 }) {
   const hash = await input.walletClient.writeContract({
     address: getRequiredAddress(getERC8183Config().contractAddress, "ERC8183 contract"),
     abi: ERC8183_ABI,
     functionName: "fund",
-    args: [input.jobId, input.optParams ?? "0x"],
+    args: [input.jobId, input.amount, input.optParams ?? "0x"],
     account: input.account,
     chain: configuredChain(),
   });
@@ -345,21 +347,24 @@ export async function fundERC8183Job(input: {
 
 export async function readERC8183Job(publicClient: PublicClient, jobId: bigint) {
   const config = getERC8183Config();
-  const result = await publicClient.readContract({
+  const job = await publicClient.readContract({
     address: getRequiredAddress(config.contractAddress, "ERC8183 contract"),
     abi: ERC8183_ABI,
-    functionName: "jobs",
+    functionName: "getJob",
     args: [jobId],
   });
   return {
-    client: result[0],
-    provider: result[1],
-    evaluator: result[2],
-    description: result[3],
-    budget: result[4],
-    expiredAt: result[5],
-    status: Number(result[6]),
-    hook: result[7],
+    id: job.id,
+    client: job.client,
+    provider: job.provider,
+    evaluator: job.evaluator,
+    description: job.description,
+    budget: job.budget,
+    expiredAt: job.expiredAt,
+    status: Number(job.status),
+    hook: job.hook,
+    submittedAt: job.submittedAt,
+    deliverable: job.deliverable,
   };
 }
 
