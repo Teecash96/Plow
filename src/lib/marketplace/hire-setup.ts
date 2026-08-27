@@ -96,19 +96,34 @@ export function getHireSetupStatus(agent?: Agent): HireSetupStatus {
     {
       key: "x402-payee",
       label: "x402 payee",
-      state: process.env.X402_PAYEE_ADDRESS || process.env.NEXT_PUBLIC_X402_PAYEE_ADDRESS ? "ready" : "blocked",
+      state:
+        x402.resourceUrl && x402.resourceUrl !== "/api/x402/resource"
+          ? process.env.NEXT_PUBLIC_X402_PAYEE_ADDRESS
+            ? "ready"
+            : "blocked"
+          : "ready",
       detail:
-        process.env.X402_PAYEE_ADDRESS || process.env.NEXT_PUBLIC_X402_PAYEE_ADDRESS
-          ? "The resource pays the configured agent wallet."
-          : "Set X402_PAYEE_ADDRESS (server side) to the agent wallet that receives payment.",
+        x402.resourceUrl && x402.resourceUrl !== "/api/x402/resource"
+          ? process.env.NEXT_PUBLIC_X402_PAYEE_ADDRESS
+            ? "The resource pays the configured agent wallet."
+            : "Set X402_PAYEE_ADDRESS (server side) to the agent wallet that receives payment."
+          : "Internal resource at /api/x402/resource — payee is resolved server side.",
     },
     {
       key: "x402-facilitator-key",
       label: "x402 facilitator signer",
-      state: process.env.X402_FACILITATOR_KEY ? "ready" : "blocked",
-      detail: process.env.X402_FACILITATOR_KEY
-        ? "The server-held facilitator key is configured for settlement."
-        : "Set X402_FACILITATOR_KEY (server only) so the resource can push settlement transactions.",
+      state:
+        x402.resourceUrl && x402.resourceUrl !== "/api/x402/resource"
+          ? process.env.NEXT_PUBLIC_X402_FACILITATOR_KEY
+            ? "ready"
+            : "blocked"
+          : "ready",
+      detail:
+        x402.resourceUrl && x402.resourceUrl !== "/api/x402/resource"
+          ? process.env.NEXT_PUBLIC_X402_FACILITATOR_KEY
+            ? "The server-held facilitator key is configured for settlement."
+            : "Set X402_FACILITATOR_KEY (server only) so the resource can push settlement transactions."
+          : "Internal resource at /api/x402/resource — facilitator key is server side and never exposed to the browser.",
     },
   ];
 
