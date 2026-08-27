@@ -98,7 +98,7 @@ export async function POST(request: NextRequest) {
   if (!erc.paymentTokenAddress) {
     return NextResponse.json({ error: "The payment token is not configured." }, { status: 503 });
   }
-  const paymentHeader = request.headers.get("X-PAYMENT");
+  const paymentHeader = request.headers.get("X-PAYMENT") ?? request.headers.get("PAYMENT-SIGNATURE");
   const settlement = await settleFromPaymentHeader({
     paymentHeader,
     expectedAmount: status.amount ?? "0",
