@@ -124,7 +124,9 @@ interface RegistrationCandidate {
 }
 
 function configuredRpcUrl() {
-  return process.env.BSC_RPC_URL?.trim() || DEFAULT_BSC_RPC_URL;
+  // ERC-8004 lives on BSC Mainnet — never point it at the testnet chain.
+  // BSC_RPC_URL / NEXT_PUBLIC_BSC_RPC_URL belong to the hire escrow stack (chain 97).
+  return process.env.ERC8004_RPC_URL?.trim() || process.env.NEXT_PUBLIC_ERC8004_RPC_URL?.trim() || DEFAULT_BSC_RPC_URL;
 }
 
 function configuredScanBlocks() {
@@ -198,9 +200,10 @@ function configuredIndexerUrl() {
 
 export function getERC8004Config(): ERC8004DiscoveryConfig {
   const rpcUrl = configuredRpcUrl();
+  const envRpc = process.env.ERC8004_RPC_URL?.trim() || process.env.NEXT_PUBLIC_ERC8004_RPC_URL?.trim();
   return {
     rpcUrl,
-    rpcSource: process.env.BSC_RPC_URL?.trim() ? "environment" : "default",
+    rpcSource: envRpc ? "environment" : "default",
     scanBlocks: configuredScanBlocks(),
     fromBlock: configuredFromBlock(),
     maxAgents: configuredMaxAgents(),
