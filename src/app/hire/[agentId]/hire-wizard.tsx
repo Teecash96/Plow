@@ -107,8 +107,7 @@ export function HireWizard({ agent, agentId }: HireWizardProps) {
     agent
     && agent.mode === "live"
     && agent.verified
-    && agent.identity.ownerAddress
-    && agent.deployment.chainId === ercConfig.chainId,
+    && agent.identity.ownerAddress,
   );
   const canSubmit = Boolean(
     agent

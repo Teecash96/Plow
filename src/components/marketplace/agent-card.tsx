@@ -112,14 +112,13 @@ export function AgentCard({ agent, selected = false, onToggleCompare }: AgentCar
           View
           <ArrowUpRight size={16} />
         </a>
-        <button
-          type="button"
-          disabled={!isHireable}
-          className="inline-flex min-h-11 flex-1 items-center justify-center rounded-full bg-brand px-4 py-2 text-sm font-semibold text-black transition-all duration-700 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-[#ffd34f] active:translate-y-px disabled:cursor-not-allowed disabled:bg-[#5a5230] disabled:text-[#b9ae7b]"
-          title={isHireable ? "Hiring will be available in the next slice" : "Hiring is unavailable until verification passes"}
+        <a
+          href={`/hire/${agent.slug}`}
+          className="inline-flex min-h-11 flex-1 items-center justify-center rounded-full bg-brand px-4 py-2 text-sm font-semibold text-black transition-all duration-700 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-[#ffd34f] active:translate-y-px focus:outline-none focus:ring-2 focus:ring-brand focus:ring-offset-2 focus:ring-offset-surface"
+          title="Open the wallet-gated hiring wizard for this agent"
         >
           Hire
-        </button>
+        </a>
       </div>
     </article>
   );
