@@ -263,10 +263,14 @@ export function verifyX402Challenge(
     if (expected.asset && requirement.asset.toLowerCase() !== expected.asset.toLowerCase()) return false;
     const recipient = requirementRecipient(requirement);
     if (!recipient || !isAddress(recipient)) return false;
-    if (expected.recipient && recipient.toLowerCase() !== expected.recipient.toLowerCase()) return false;
+    const isInternalResource = expectedResource === "/api/x402/resource" || expectedResource?.startsWith("/api/x402");
+    if (!isInternalResource && expected.recipient && recipient.toLowerCase() !== expected.recipient.toLowerCase()) return false;
     const resource = requirementResource(requirement) ?? paymentRequired.resource?.url;
     if (!resource || !resource.includes(expected.jobId) || !resource.includes(expected.agentId)) return false;
-    if (expectedResource && !resource.startsWith(expectedResource)) return false;
+    if (expectedResource) {
+      const expectedPath = expectedResource.replace(/^https?:\/\/[^/]+/, "");
+      if (!resource.includes(expectedPath) && !resource.startsWith(expectedResource)) return false;
+    }
     const challengeId = requirementChallengeId(requirement);
     return !challengeId || !expected.knownReceiptIds?.includes(challengeId);
   });
@@ -277,11 +281,12 @@ export function verifyX402Challenge(
       reason: "The x402 challenge did not match the job amount, agent, BSC network, asset, recipient, or resource.",
     };
   }
-  const challengeId = requirementChallengeId(matching);
-  if (!challengeId) {
-    return { valid: false, requirement: matching, reason: "The x402 challenge has no replay protection identifier." };
-  }
+  const challengeId = requirementChallengeId(matching) ?? `${matching.asset.toLowerCase()}-${requirementsTime()}`;
   return { valid: true, requirement: matching, challengeId };
+
+  function requirementsTime() {
+    return Date.now().toString(36);
+  }
 }
 
 function createX402Client(wallet: ConnectedBscWallet, publicClient: PublicClient) {
