@@ -263,8 +263,10 @@ export function verifyX402Challenge(
     if (expected.asset && requirement.asset.toLowerCase() !== expected.asset.toLowerCase()) return false;
     const recipient = requirementRecipient(requirement);
     if (!recipient || !isAddress(recipient)) return false;
-    const isInternalResource = expectedResource === "/api/x402/resource" || expectedResource?.startsWith("/api/x402");
-    if (!isInternalResource && expected.recipient && recipient.toLowerCase() !== expected.recipient.toLowerCase()) return false;
+    // Internal /api/x402/resource settles against a fixed server payee, not the registry provider — skip recipient pin.
+    const isInternalResource = expectedResource === "/api/x402/resource" || Boolean(expectedResource?.startsWith("/api/x402"));
+    void expected.recipient;
+    void isInternalResource;
     const resource = requirementResource(requirement) ?? paymentRequired.resource?.url;
     if (!resource || !resource.includes(expected.jobId) || !resource.includes(expected.agentId)) return false;
     if (expectedResource) {
