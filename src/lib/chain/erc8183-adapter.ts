@@ -196,10 +196,21 @@ export function createBscPublicClient(rpcUrl = readRpcUrl().url): PublicClient {
   });
 }
 
+export interface InjectedProviderCandidate extends InjectedEip1193Provider {
+  isMetaMask?: boolean;
+  providers?: InjectedProviderCandidate[];
+}
+
 export function getInjectedProvider(): InjectedEip1193Provider | undefined {
   if (typeof window === "undefined") return undefined;
-  const candidate = (window as Window & { ethereum?: InjectedEip1193Provider }).ethereum;
-  return candidate;
+  const win = window as Window & { ethereum?: InjectedProviderCandidate };
+  const injected = win.ethereum;
+  if (!injected) return undefined;
+  if (Array.isArray(injected.providers) && injected.providers.length > 0) {
+    const metamask = injected.providers.find((provider) => provider.isMetaMask);
+    if (metamask) return metamask;
+  }
+  return injected;
 }
 
 export async function connectBscWallet(): Promise<ConnectedBscWallet> {
