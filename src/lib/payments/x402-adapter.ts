@@ -182,7 +182,7 @@ export async function parseX402ChallengeResponse(response: Response): Promise<Pa
 }
 
 function resourceForJob(resourceUrl: string, expected: X402ExpectedPayment) {
-  const url = new URL(resourceUrl);
+  const url = new URL(resourceUrl, typeof window !== "undefined" && window.location.origin ? window.location.origin : "http://localhost:3000");
   url.searchParams.set("jobId", expected.jobId);
   url.searchParams.set("agentId", expected.agentId);
   return url.toString();
