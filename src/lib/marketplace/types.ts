@@ -73,6 +73,29 @@ export interface AgentPricing {
   unit: string;
 }
 
+export interface AgentReadinessCheck {
+  verified: boolean;
+  detail: string;
+  checkedAt: string;
+}
+
+export interface AgentServiceReadiness {
+  endpointVerified: boolean;
+  pricingVerified: boolean;
+  heartbeatVerified: boolean;
+  executionEvidenceVerified: boolean;
+  bootstrapEligible?: boolean;
+  freshnessVerified: boolean;
+  available: boolean;
+  endpoint: AgentReadinessCheck;
+  pricing: AgentReadinessCheck;
+  heartbeat: AgentReadinessCheck;
+  executionEvidence: AgentReadinessCheck;
+  heartbeatAt?: string;
+  lastExecutionAt?: string;
+  reason?: string;
+}
+
 export interface MetricValue {
   key: string;
   label: string;
@@ -112,6 +135,7 @@ export interface AltanaPermissionTemplate {
   allowlistedContracts: readonly string[];
   allowlistedTokens: readonly string[];
   expiresAt: string;
+  expiresAtTimestamp?: string;
   revokeSupported: boolean;
   lastUpdatedAt: string;
   source: "operator" | "demo" | "job";
@@ -187,6 +211,7 @@ export interface AgentHiringReadiness {
   freshnessVerified: boolean;
   available: boolean;
   reason?: string;
+  service?: AgentServiceReadiness;
 }
 
 export interface Agent {
@@ -197,6 +222,7 @@ export interface Agent {
   mode: AgentMode;
   verified: boolean;
   category: RegistryCategory;
+  supportedCategories?: readonly AgentCategory[];
   categorySource?: "metadata" | "manual" | "demo" | "uncategorised";
   categoryEvidence?: CategoryEvidence;
   description: string;
@@ -212,13 +238,51 @@ export interface Agent {
   hiring: AgentHiringReadiness;
 }
 
+export function isAgentHireable(agent?: Agent) {
+  return Boolean(
+    agent
+    && agent.mode === "live"
+    && agent.verified
+    && Boolean(agent.identity.ownerAddress)
+    && agent.hiring.identityVerified
+    && agent.hiring.mainnetVerified
+    && agent.hiring.freshnessVerified
+    && agent.hiring.available
+    && agent.hiring.service?.available === true,
+  );
+}
+
 export type JobStatus =
   | "draft"
   | "pending"
   | "active"
+  | "submitted"
   | "completed"
+  | "rejected"
+  | "expired"
   | "failed"
   | "cancelled";
+
+export type JobEscrowStatus = "open" | "funded" | "submitted" | "completed" | "rejected" | "expired";
+
+export interface JobEscrow {
+  status: JobEscrowStatus;
+  creationTransactionHash?: string;
+  registrationTransactionHash?: string;
+  budgetTransactionHash?: string;
+  fundingTransactionHash?: string;
+  pendingFundingTransactionHash?: string;
+  pendingFundingAt?: string;
+  submissionTransactionHash?: string;
+  disputeTransactionHash?: string;
+  settlementTransactionHash?: string;
+  refundTransactionHash?: string;
+  deliverableHash?: string;
+  submittedAt?: string;
+  expiresAt?: string;
+  settledAt?: string;
+  reason?: string;
+}
 
 export interface JobStatusChange {
   status: JobStatus;
@@ -241,6 +305,7 @@ export interface SessionPermission {
   allowlistedContracts: readonly string[];
   allowlistedTokens?: readonly string[];
   expiresAt: string;
+  expiresAtTimestamp?: string;
   status?: "not_configured" | "draft" | "active" | "revoked";
   templateId?: string;
   revokeSupported?: boolean;
@@ -260,9 +325,64 @@ export interface PaymentReceipt {
   paidAt?: string;
 }
 
+export type JobExecutionStatus = "running" | "completed" | "failed";
+
+export interface JobExecution {
+  status: JobExecutionStatus;
+  attempt: number;
+  startedAt: string;
+  completedAt?: string;
+  error?: string;
+}
+
+export type FundMovingActionStatus = "reserved" | "approval-submitted" | "swap-submitted" | "confirmed" | "failed";
+
+export interface FundMovingAction {
+  kind: "pancakeswap-rebalance";
+  status: FundMovingActionStatus;
+  chainId: 56 | 97;
+  routerAddress: string;
+  tokenInAddress: string;
+  tokenOutAddress: string;
+  tokenInSymbol: string;
+  tokenOutSymbol: string;
+  tokenInDecimals: number;
+  tokenOutDecimals: number;
+  amountInAtomic: string;
+  quotedAmountOutAtomic: string;
+  minimumAmountOutAtomic: string;
+  slippageBps: number;
+  deadline: string;
+  quotedAt: string;
+  reservedAt: string;
+  approvalTransactionHash?: string;
+  transactionHash?: string;
+  confirmedAt?: string;
+  failureReason?: string;
+}
+
+export type JobMode = "live" | "simulation";
+
+export interface JobSimulationStep {
+  id: string;
+  label: string;
+  completedAt: string;
+  detail: string;
+}
+
+export interface JobSimulation {
+  scenario: "one-click-hire";
+  network: "BSC Mainnet" | "BSC Testnet";
+  chainId: 56 | 97;
+  completedAt: string;
+  steps: readonly JobSimulationStep[];
+}
+
 export interface Job {
   id: string;
+  mode?: JobMode;
   agentId: string;
+  agentIdentityId?: string;
   agentName?: string;
   category: RegistryCategory;
   clientAddress: string;
@@ -283,6 +403,10 @@ export interface Job {
   termsHash?: string;
   resultUri?: string;
   resultSummary?: string;
+  execution?: JobExecution;
+  fundMovingAction?: FundMovingAction;
+  escrow?: JobEscrow;
+  simulation?: JobSimulation;
 }
 
 export const AGENT_REQUIRED_FIELDS = [

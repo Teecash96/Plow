@@ -1,4 +1,4 @@
-import type { Agent, Job, JobStatus, SessionPermission } from "./types";
+import type { Agent, Job, JobMode, JobSimulation, JobStatus, RegistryCategory, SessionPermission } from "./types";
 
 const JOB_STORAGE_KEY = "plow.jobs.v1";
 
@@ -41,7 +41,9 @@ export function getLocalJob(jobId: string) {
 
 export interface CreateLocalJobInput {
   agent: Agent;
+  mode?: JobMode;
   taskSummary: string;
+  category?: RegistryCategory;
   price: string;
   currency: string;
   clientAddress?: string;
@@ -54,15 +56,20 @@ export interface CreateLocalJobInput {
   onchainChainId?: 56 | 97;
   jobContractAddress?: string;
   payment?: Job["payment"];
+  escrow?: Job["escrow"];
+  simulation?: JobSimulation;
 }
 
 export function createLocalJob(input: CreateLocalJobInput): Job {
   const now = new Date().toISOString();
+  const category = input.category ?? input.agent.category;
   const job: Job = {
     id: makeId(),
+    mode: input.mode ?? "live",
     agentId: input.agent.id,
+    agentIdentityId: input.agent.identity.agentId,
     agentName: input.agent.name,
-    category: input.agent.category,
+    category,
     clientAddress: input.clientAddress ?? "Local draft",
     taskSummary: input.taskSummary,
     status: input.status ?? "draft",
@@ -74,7 +81,7 @@ export function createLocalJob(input: CreateLocalJobInput): Job {
       protocol: "ERC-8183",
       termsHash: input.termsHash,
       taskSummary: input.taskSummary,
-      category: input.agent.category,
+      category,
       expiresAt: input.expiresAt,
     },
     statusHistory: [
@@ -96,6 +103,8 @@ export function createLocalJob(input: CreateLocalJobInput): Job {
     onchainChainId: input.onchainChainId,
     jobContractAddress: input.jobContractAddress,
     termsHash: input.termsHash,
+    escrow: input.escrow,
+    simulation: input.simulation,
   };
 
   writeJobs([job, ...readJobs()]);

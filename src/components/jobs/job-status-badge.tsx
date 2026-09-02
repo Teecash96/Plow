@@ -4,7 +4,10 @@ const STATUS_LABELS: Record<JobStatus, string> = {
   draft: "Draft",
   pending: "Pending",
   active: "Active",
+  submitted: "Submitted",
   completed: "Completed",
+  rejected: "Rejected",
+  expired: "Expired",
   failed: "Failed",
   cancelled: "Cancelled",
 };
@@ -13,7 +16,10 @@ const STATUS_STYLES: Record<JobStatus, string> = {
   draft: "border-surface-border bg-surface-raised text-muted",
   pending: "border-[#9a843c] bg-[#211d0d] text-[#e8d995]",
   active: "border-[#5a9876] bg-[#10271f] text-positive",
+  submitted: "border-[#6f82a8] bg-[#151d2d] text-[#b8c8f0]",
   completed: "border-[#5a9876] bg-[#10271f] text-positive",
+  rejected: "border-[#ad6565] bg-[#281414] text-negative",
+  expired: "border-surface-border bg-surface-raised text-muted",
   failed: "border-[#ad6565] bg-[#281414] text-negative",
   cancelled: "border-surface-border bg-surface-raised text-muted",
 };

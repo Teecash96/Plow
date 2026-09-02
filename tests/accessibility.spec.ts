@@ -50,7 +50,7 @@ const pages = [
   { name: "homepage", path: "/" },
   { name: "agent browse", path: "/agents" },
   { name: "agent detail", path: "/agents/demo-rebalancer-001" },
-  { name: "hire wizard", path: "/hire/demo-rebalancer-001" },
+  { name: "quick hire", path: "/hire/demo-rebalancer-001" },
   { name: "jobs list", path: "/jobs" },
   { name: "job detail", path: "/jobs/a11y-job", seedJob: true },
 ] as const;

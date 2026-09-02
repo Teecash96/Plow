@@ -12,7 +12,7 @@ export async function generateMetadata({ params }: HirePageProps): Promise<Metad
 
   return {
     title: agent ? `Hire ${agent.name} | BNB Agent Studio` : "Hire agent | BNB Agent Studio",
-    description: "Review task terms, permissions, job terms, and payment previews before creating a local job draft.",
+    description: "Start a verified agent task with one primary action and safe wallet checks.",
   };
 }
 

@@ -51,6 +51,14 @@ If the remote does not exist or returns 404, create it first or update the remot
 
 Start from [.env.example](./.env.example). Vercel public variables are embedded at build time, so redeploy after changing them.
 
+### Job persistence
+
+| Variable | Required for live jobs | Purpose |
+| --- | --- | --- |
+| `DATABASE_URL` | Yes | Managed Postgres connection string for server job records. |
+
+Before the first deployment that accepts live jobs, run [`db/001_jobs.sql`](./db/001_jobs.sql) in the managed database console. For an existing installation, also run [`db/002_jobs_status_check.sql`](./db/002_jobs_status_check.sql). Vercel filesystem storage is ephemeral and is not a valid replacement. The current owner cookie is browser scoped. It prevents simple cross browser listing, but wallet signed authentication is still needed for cross device accounts.
+
 ### Discovery
 
 | Variable | Required | Purpose |
@@ -70,14 +78,54 @@ Start from [.env.example](./.env.example). Vercel public variables are embedded 
 | `NEXT_PUBLIC_HIRE_NETWORK` | Yes | `bsc-mainnet` or `bsc-testnet`. |
 | `NEXT_PUBLIC_ERC8183_CONTRACT_ADDRESS` | Yes | Tested ERC 8183 job contract for the selected network. |
 | `NEXT_PUBLIC_PAYMENT_TOKEN_ADDRESS` | Yes | ERC 20 token used by that deployment. |
+| `NEXT_PUBLIC_ERC8183_ROUTER_ADDRESS` | Yes | Evaluator router that registers and settles jobs. |
+| `NEXT_PUBLIC_ERC8183_POLICY_ADDRESS` | Yes | Evaluator policy registered with the router. |
 | `NEXT_PUBLIC_X402_RESOURCE_URL` | Yes | Resource that returns and verifies the job bound x402 challenge. |
 | `NEXT_PUBLIC_X402_FACILITATOR_URL` | No | Facilitator metadata when the resource uses one. |
 | `NEXT_PUBLIC_HIRE_COMBINED_SETTLEMENT` | Yes | Must remain `false` until service settlement and escrow funding are tested together. |
 | `NEXT_PUBLIC_BSC_RPC_URL` | No | Browser wallet and contract read RPC. The adapter can use `BSC_RPC_URL` or its public default. |
-| `NEXT_PUBLIC_ERC8183_EVALUATOR_ADDRESS` | No | Evaluator address. The buyer wallet is used when omitted. |
-| `NEXT_PUBLIC_ERC8183_HOOK_ADDRESS` | No | Hook address when the deployment does not whitelist the zero address. |
+| `NEXT_PUBLIC_ERC8183_EVALUATOR_ADDRESS` | No | Compatibility override. The canonical flow uses the router. |
+| `NEXT_PUBLIC_ERC8183_HOOK_ADDRESS` | No | Compatibility override. The canonical flow uses the router. |
+
+### Guarded PancakeSwap action
+
+These values are optional. Leave them blank until the fixed router and token pair have been verified on the selected BSC network.
+
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `NEXT_PUBLIC_PANCAKESWAP_REBALANCE_ROUTER_ADDRESS` | No | One verified PancakeSwap router used by the bounded action. |
+| `NEXT_PUBLIC_PANCAKESWAP_REBALANCE_TOKEN_IN_ADDRESS` | No | Fixed input token. It must equal `NEXT_PUBLIC_PAYMENT_TOKEN_ADDRESS`. |
+| `NEXT_PUBLIC_PANCAKESWAP_REBALANCE_TOKEN_OUT_ADDRESS` | No | Fixed output token. It must be different and included in the job permission. |
+| `NEXT_PUBLIC_PANCAKESWAP_REBALANCE_MAX_SLIPPAGE_BPS` | No | Integer from 1 to 500. Defaults to 100 bps. |
+
+The job detail page asks the client wallet for an explicit approval and swap confirmation. It uses an exact approval amount, no native value, a fixed path, and a five minute deadline. Postgres stores one action reservation per job. Never treat this path as an autonomous agent wallet or as a V3 LP range manager.
 
 The compatibility aliases `NEXT_PUBLIC_ERC8183_PAYMENT_TOKEN_ADDRESS` and `NEXT_PUBLIC_X402_RESOURCE` are also accepted. Use the names in `.env.example` for new deployments.
+
+### Controlled provider service
+
+The repository includes a provider service for a testnet agent. Leave it disabled unless this deployment is operated by the ERC 8004 identity owner.
+
+| Variable | Required for provider mode | Purpose |
+| --- | --- | --- |
+| `PLOW_PROVIDER_ENABLED` | Yes | Set `true` to enable the provider routes. |
+| `PLOW_PROVIDER_AGENT_ID` | Yes in legacy mode | ERC 8004 identity controlled by the provider operator. |
+| `PLOW_PROVIDER_PRICE` | Yes in legacy mode | Positive x402 price returned in provider metadata. |
+| `PLOW_PROVIDER_CURRENCY` | Yes in legacy mode | Payment token symbol. Use `U` for the deployed BSC ERC 8183 payment token. |
+| `PLOW_PROVIDER_REQUEST_SECRET` | Yes | At least 32 random characters shared by the executor and provider route. |
+| `PLOW_PROVIDER_PUBLIC_URL` | Yes for metadata | Public HTTPS origin used to build service URLs. |
+| `PLOW_PROVIDER_EXECUTION_URL` | No | Exact execution URL. Defaults to `/api/provider/execute` under the public URL. |
+| `PLOW_PROVIDER_SUPPORTED_CATEGORIES` | No | Comma separated category IDs for legacy mode. Defaults to all four required categories. |
+| `PLOW_PROVIDER_PROFILES` | Yes in multi identity mode | JSON array of profiles. Each profile must contain a unique `agentId`, `categories`, `price`, `currency`, and its own server only `privateKey`. |
+| `PLOW_PROVIDER_POOL_ADDRESS` | No | Default PancakeSwap V3 pool used by rebalancing and grid reads. A task may also include a pool address. |
+| `PLOW_PROVIDER_YIELD_VAULTS` | No | JSON array of configured ERC 4626 vault addresses and names for yield comparison. |
+| `PLOW_PROVIDER_LENDING_POOL_ADDRESS` | No | Lending pool exposing `getUserAccountData` for health factor reads. |
+
+The metadata URL to publish in the ERC 8004 registration is `https://your-provider.example/api/provider/metadata` in legacy mode. In multi identity mode, publish `https://your-provider.example/api/provider/metadata?agentId=<agent-id>` for the matching profile. Do not publish a localhost URL. See [HIRE_SETUP.md](./HIRE_SETUP.md) for the request contract and the remaining onchain submission step.
+
+Use the deployed `/provider` page to register a new identity, check the provider routes, and publish the metadata URI. Registration and URI updates require the identity owner wallet on BSC Mainnet.
+
+The provider service exposes four category strategies through the same signed execution endpoint. It selects the signer profile from the job agent ID, so a job for one identity cannot submit through another identity's key. The strategies read live BSC Mainnet state and return bounded plans. They do not place swaps, grid orders, deposits, withdrawals, rebalances, liquidations, or repayments. Configure the category source addresses before presenting the corresponding metric as live. A separate session key and explicit contract allowlist are required before adding fund moving actions.
 
 ## 4. Discovery only mode
 
@@ -105,14 +153,18 @@ In discovery only mode, confirm that the setup checklist says live hiring is blo
 
 Use Vercel deployment logs if a page fails. The BSC registry scan can fall back to a recent block window when the selected RPC does not support historical logs. That warning is expected and is shown in the browse page coverage panel.
 
+For a live job, the quick hire action starts the agent after funding. The job detail page shows `Run agent` as a retry action if needed. The agent metadata must publish a public HTTPS endpoint that follows the `plow-agent-execution-v1` contract described in [`HIRE_SETUP.md`](./HIRE_SETUP.md). A result summary appears after a valid response. Escrow advances to `submitted` only after the endpoint returns a deliverable hash and a verified provider submission transaction.
+
+For a submitted live job, use the job page's evaluator preflight before settling. A pending policy must show its unlock time without opening a wallet prompt. The page rechecks automatically at the unlock time and keeps the settle button disabled until the verdict is ready. After that, it may request one client wallet settlement and then record the verified router receipt. If the job is already terminal on chain, refresh the page and confirm the durable record reconciles without another transaction.
+
 ## 6. Enable live hiring later
 
-1. Test the ERC 8183 deployment on BSC Testnet first.
-2. Confirm the contract bytecode and `paymentToken()` value.
+1. Test the ERC 8183 kernel, router, and policy on BSC Testnet first.
+2. Confirm their bytecode and the kernel `paymentToken()` value.
 3. Configure an x402 resource that binds job ID, agent ID, amount, asset, recipient, network, and replay protection.
-4. Set the required Vercel variables.
-5. Keep combined settlement disabled until both transfers are verified.
-6. Rebuild and run a real wallet test.
-7. Enable `NEXT_PUBLIC_HIRE_COMBINED_SETTLEMENT=true` only after the complete sequence is proven.
+4. Set the required Vercel variables, including router and policy addresses.
+5. Test provider submission, dispute, router settlement, and expiry refund.
+6. Keep combined settlement disabled until every transfer is verified.
+7. Rebuild and run a real wallet test before enabling `NEXT_PUBLIC_HIRE_COMBINED_SETTLEMENT=true`.
 
 See [HIRE_SETUP.md](./HIRE_SETUP.md) for the adapter safety checks and activation requirements.

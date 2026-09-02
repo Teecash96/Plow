@@ -84,7 +84,10 @@ export function AgentsBrowser({ agents, liveAgentsCount, liveStatus, scan }: Age
             <span className="flex size-8 items-center justify-center rounded-full bg-brand text-black">P</span>
             BNB Agent Studio
           </Link>
-          <Link href="/" className="inline-flex min-h-11 items-center text-sm text-muted transition-colors hover:text-foreground focus:outline-none focus:ring-2 focus:ring-brand">Back home</Link>
+          <div className="flex items-center gap-4">
+            <Link href="/provider" className="inline-flex min-h-11 items-center text-sm text-muted transition-colors hover:text-foreground focus:outline-none focus:ring-2 focus:ring-brand">Provider setup</Link>
+            <Link href="/" className="inline-flex min-h-11 items-center text-sm text-muted transition-colors hover:text-foreground focus:outline-none focus:ring-2 focus:ring-brand">Back home</Link>
+          </div>
         </div>
       </header>
 

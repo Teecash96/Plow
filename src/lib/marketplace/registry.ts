@@ -2,15 +2,27 @@ import { CATEGORY_DEFINITIONS } from "./categories";
 import { classifyAgentCategory } from "./category-classifier";
 import { curatedCategoryForLiveAgent } from "./curated-category-mapping";
 import { AGENTS as DEMO_AND_STATIC_AGENTS } from "./agents";
+import { extractERC8004AgentId, findMarketplaceAgentById } from "./agent-lookup";
+import { probeAgentService, validateAgentServiceUri } from "./agent-execution";
+import { getLatestVerifiedAgentExecutionEvidence } from "./job-database";
+import { getProviderProfileForAgent, getProviderServiceConfig, providerEndpointMatches } from "./provider-service";
+import { getProviderSignerStatus } from "./provider-submission";
+import { BSC_ERC8183_PAYMENT_CURRENCY } from "./payment-currency";
+import {
+  assessAgentServiceReadiness,
+  parseAgentHeartbeatResponse,
+  parseAgentServiceMetadata,
+} from "./service-readiness";
 import {
   discoverERC8004Agents,
+  getERC8004AgentById,
   ERC8004_IDENTITY_REGISTRY_ADDRESS,
   getERC8004ExplorerUrl,
   type ERC8004DiscoveryResult,
   type ERC8004RegistrationMetadata,
   type ERC8004ScanSummary,
 } from "@/lib/chain/erc8004-adapter";
-import type { Agent, Evidence, MetricValue, RegistryCategory } from "./types";
+import type { Agent, AgentServiceReadiness, Evidence, MetricValue, RegistryCategory } from "./types";
 
 export type LiveRegistryStatus = ERC8004DiscoveryResult["status"] | "stale";
 
@@ -26,19 +38,15 @@ export interface MarketplaceRegistryResult {
 }
 
 const REGISTRY_CACHE_MS = 60_000;
+const DIRECT_AGENT_CACHE_MS = 60_000;
 let cachedResult: MarketplaceRegistryResult | undefined;
 let cachedAt = 0;
 let pendingResult: Promise<MarketplaceRegistryResult> | undefined;
+const directAgentCache = new Map<string, { agent: Agent; expiresAt: number }>();
+const pendingDirectAgentLookups = new Map<string, Promise<Agent | undefined>>();
 
 function textValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
-
-function flattenText(value: unknown): string[] {
-  if (typeof value === "string") return [value];
-  if (Array.isArray(value)) return value.flatMap(flattenText);
-  if (typeof value === "object" && value !== null) return Object.values(value).flatMap(flattenText);
-  return [];
 }
 
 function metadataText(metadata: ERC8004RegistrationMetadata | undefined, keys: readonly string[]) {
@@ -50,17 +58,32 @@ function metadataText(metadata: ERC8004RegistrationMetadata | undefined, keys: r
   return undefined;
 }
 
-function getServiceUri(metadata: ERC8004RegistrationMetadata | undefined, endpoints: readonly string[] = []) {
-  const firstEndpoint = endpoints.find(Boolean);
-  if (firstEndpoint) return firstEndpoint;
-  if (!metadata) return undefined;
-  const candidates = [metadata.endpoint, metadata.service, metadata.serviceUri, metadata.services, metadata.endpoints, metadata.url, metadata.uri];
-  for (const candidate of candidates) {
-    const values = flattenText(candidate);
-    const uri = values.find((value) => /^[a-z][a-z0-9+.-]*:\/\//i.test(value) || /^did:/i.test(value));
-    if (uri) return uri;
-  }
-  return undefined;
+function getServiceUri(metadata: ERC8004RegistrationMetadata | undefined) {
+  return parseAgentServiceMetadata(metadata).executionEndpoint;
+}
+
+function initialServiceReadiness(metadata: ERC8004RegistrationMetadata | undefined, checkedAt: string) {
+  const parsed = parseAgentServiceMetadata(metadata);
+  return assessAgentServiceReadiness({
+    checkedAt,
+    now: checkedAt,
+    endpoint: {
+      url: parsed.executionEndpoint,
+      verified: false,
+      detail: parsed.executionEndpoint
+        ? "The Plow execution endpoint is published but has not passed a server side probe."
+        : "No explicit Plow execution endpoint is published in the registration metadata.",
+    },
+    x402Supported: parsed.x402Supported,
+    pricing: parsed.pricing,
+    heartbeat: {
+      verified: false,
+      detail: parsed.declaredHeartbeatAt
+        ? "A heartbeat is declared, but a live health check is required."
+        : "No provider heartbeat is published.",
+    },
+    expectedPaymentCurrency: BSC_ERC8183_PAYMENT_CURRENCY,
+  });
 }
 
 function metricSet(category: RegistryCategory, capturedAt: string): readonly MetricValue[] {
@@ -78,7 +101,11 @@ function metricSet(category: RegistryCategory, capturedAt: string): readonly Met
   }));
 }
 
-function mapLiveRecord(record: ERC8004DiscoveryResult["records"][number], fetchedAt: string): Agent {
+function mapLiveRecord(
+  record: ERC8004DiscoveryResult["records"][number],
+  fetchedAt: string,
+  verifiedServiceReadiness?: AgentServiceReadiness,
+): Agent {
   const signals = {
     endpoints: record.endpoints ?? [],
     capabilities: record.capabilities ?? [],
@@ -95,7 +122,9 @@ function mapLiveRecord(record: ERC8004DiscoveryResult["records"][number], fetche
     tags: signals.tags,
   };
   const category = curatedCategoryForLiveAgent(record.agentId, categoryInput) ?? classifyAgentCategory(categoryInput);
-  const serviceUri = getServiceUri(record.metadata, signals.endpoints);
+  const serviceMetadata = parseAgentServiceMetadata(record.metadata);
+  const serviceUri = getServiceUri(record.metadata);
+  const serviceReadiness = verifiedServiceReadiness ?? initialServiceReadiness(record.metadata, fetchedAt);
   const identityVerified = record.identityVerified === true;
   const identityEvidenceSource = identityVerified ? "onchain" as const : "indexer" as const;
   const metadataEvidenceSource = record.metadata ? "onchain" as const : record.source === "indexer" ? "indexer" as const : "onchain" as const;
@@ -104,6 +133,25 @@ function mapLiveRecord(record: ERC8004DiscoveryResult["records"][number], fetche
     : identityVerified
       ? "The ERC 8004 registry token URI was read from BSC Mainnet."
       : "The indexer returned this registry candidate.";
+  const serviceEndpointStatus = serviceReadiness.endpointVerified
+    ? "verified" as const
+    : serviceMetadata.executionEndpoint
+      ? "pending" as const
+      : "unavailable" as const;
+  const pricingStatus = serviceReadiness.pricingVerified ? "verified" as const : "unavailable" as const;
+  const heartbeatStatus = serviceReadiness.heartbeatVerified
+    ? "verified" as const
+    : serviceReadiness.heartbeatAt
+      ? "stale" as const
+      : "unavailable" as const;
+  const executionEvidenceStatus = serviceReadiness.executionEvidenceVerified
+    ? "verified" as const
+    : serviceReadiness.bootstrapEligible
+      ? "pending" as const
+      : "unavailable" as const;
+  const freshnessSeconds = serviceReadiness.heartbeatAt
+    ? Math.max(0, Math.floor((Date.parse(fetchedAt) - Date.parse(serviceReadiness.heartbeatAt)) / 1_000))
+    : 0;
   const evidence: Evidence[] = [
     {
       id: `erc8004-${record.agentId}-identity`,
@@ -126,14 +174,46 @@ function mapLiveRecord(record: ERC8004DiscoveryResult["records"][number], fetche
       explorerUrl: record.metadataUriResolved ?? (record.agentURI.startsWith("http") ? record.agentURI : undefined),
     },
     {
-      id: `erc8004-${record.agentId}-freshness`,
+      id: `erc8004-${record.agentId}-service-endpoint`,
       kind: "execution" as const,
-      label: "Heartbeat and execution freshness",
-      status: "unavailable" as const,
-      source: "onchain" as const,
+      label: "Plow service endpoint",
+      status: serviceEndpointStatus,
+      source: metadataEvidenceSource,
       capturedAt: fetchedAt,
       sampleSize: 0,
-      detail: "ERC 8004 identity does not publish a heartbeat. A live execution feed is still required.",
+      detail: serviceReadiness.endpoint.detail,
+      explorerUrl: record.metadataUriResolved ?? undefined,
+    },
+    {
+      id: `erc8004-${record.agentId}-pricing`,
+      kind: "payment" as const,
+      label: "x402 price",
+      status: pricingStatus,
+      source: metadataEvidenceSource,
+      capturedAt: fetchedAt,
+      sampleSize: 0,
+      detail: serviceReadiness.pricing.detail,
+      explorerUrl: record.metadataUriResolved ?? undefined,
+    },
+    {
+      id: `erc8004-${record.agentId}-freshness`,
+      kind: "execution" as const,
+      label: "Provider heartbeat",
+      status: heartbeatStatus,
+      source: serviceReadiness.heartbeatVerified ? "agent" as const : metadataEvidenceSource,
+      capturedAt: serviceReadiness.heartbeatAt ?? fetchedAt,
+      sampleSize: 0,
+      detail: serviceReadiness.heartbeat.detail,
+    },
+    {
+      id: `erc8004-${record.agentId}-execution-evidence`,
+      kind: "execution" as const,
+      label: "Completed execution evidence",
+      status: executionEvidenceStatus,
+      source: serviceReadiness.executionEvidenceVerified ? "agent" as const : "operator" as const,
+      capturedAt: serviceReadiness.lastExecutionAt ?? fetchedAt,
+      sampleSize: serviceReadiness.executionEvidenceVerified ? 1 : 0,
+      detail: serviceReadiness.executionEvidence.detail,
     },
   ];
   if (record.registeredAt) {
@@ -158,6 +238,8 @@ function mapLiveRecord(record: ERC8004DiscoveryResult["records"][number], fetche
     mode: "live",
     verified: identityVerified,
     category: category.category,
+    supportedCategories: serviceMetadata.supportedCategories
+      ?? (category.category !== "uncategorised" ? [category.category] : undefined),
     categorySource: category.source,
     categoryEvidence: category.evidence,
     description,
@@ -178,18 +260,19 @@ function mapLiveRecord(record: ERC8004DiscoveryResult["records"][number], fetche
     deployment: {
       network: "BSC Mainnet",
       chainId: 56,
-      availability: identityVerified ? "live" : "unverified",
-      freshnessState: "unknown",
-      heartbeatAt: "Not available",
-      lastExecutionAt: "Not available",
-      freshnessSeconds: 0,
+      availability: identityVerified
+        ? serviceReadiness.available
+          ? "live"
+          : serviceReadiness.heartbeatAt
+            ? "stale"
+            : "offline"
+        : "unverified",
+      freshnessState: serviceReadiness.heartbeatVerified ? "fresh" : serviceReadiness.heartbeatAt ? "stale" : "unknown",
+      heartbeatAt: serviceReadiness.heartbeatAt ?? "Not available",
+      lastExecutionAt: serviceReadiness.lastExecutionAt ?? "Not available",
+      freshnessSeconds,
     },
-    pricing: {
-      protocol: "x402",
-      amount: "Not available",
-      currency: "USDC",
-      unit: "per task",
-    },
+    pricing: serviceMetadata.pricing ?? { protocol: "x402", amount: "Not available", currency: BSC_ERC8183_PAYMENT_CURRENCY, unit: "per task" },
     performance: [
       { window: "7 day", sampleSize: 0, capturedAt: fetchedAt, source: "onchain" as const },
       { window: "30 day", sampleSize: 0, capturedAt: fetchedAt, source: "onchain" as const },
@@ -201,10 +284,11 @@ function mapLiveRecord(record: ERC8004DiscoveryResult["records"][number], fetche
     hiring: {
       identityVerified,
       mainnetVerified: identityVerified,
-      freshnessVerified: false,
-      available: false,
+      freshnessVerified: serviceReadiness.freshnessVerified,
+      available: serviceReadiness.available,
+      service: serviceReadiness,
       reason: identityVerified
-        ? "Identity is registered on BSC. Freshness, pricing, and execution checks are still required."
+        ? serviceReadiness.reason
         : "This candidate was found by an indexer. On chain identity verification is required before hiring.",
     },
   };
@@ -291,6 +375,102 @@ export async function getMarketplaceRegistry(): Promise<MarketplaceRegistryResul
 }
 
 export async function getMarketplaceAgentById(agentId: string) {
+  const directAgentId = extractERC8004AgentId(agentId);
+  if (directAgentId) {
+    const directAgent = await getDirectMarketplaceAgentById(directAgentId);
+    if (directAgent) return directAgent;
+  }
+
   const registry = await getMarketplaceRegistry();
-  return registry.agents.find((agent) => agent.id === agentId || agent.slug === agentId);
+  return findMarketplaceAgentById(agentId, registry.agents, getDirectMarketplaceAgentById);
+}
+
+async function verifyLiveServiceReadiness(
+  record: ERC8004DiscoveryResult["records"][number],
+  marketplaceAgentId: string,
+  checkedAt: string,
+) {
+  const metadata = parseAgentServiceMetadata(record.metadata);
+  let endpointVerified = false;
+  let endpointDetail: string | undefined;
+  if (!metadata.executionEndpoint) {
+    endpointDetail = "No explicit Plow execution endpoint is published in the registration metadata.";
+  } else {
+    try {
+      await validateAgentServiceUri(metadata.executionEndpoint);
+      endpointVerified = true;
+      endpointDetail = "The Plow execution endpoint resolves to a public HTTPS service.";
+    } catch (error) {
+      endpointDetail = error instanceof Error ? error.message : "The Plow execution endpoint could not be verified.";
+    }
+  }
+
+  let heartbeatVerified = false;
+  let heartbeatAt: string | undefined;
+  let heartbeatDetail: string | undefined;
+  if (!metadata.healthEndpoint) {
+    heartbeatDetail = "No provider health endpoint is published in the registration metadata.";
+  } else {
+    try {
+      const probe = await probeAgentService(metadata.healthEndpoint);
+      heartbeatAt = parseAgentHeartbeatResponse(probe.body, record.agentId);
+      heartbeatVerified = Boolean(heartbeatAt);
+      heartbeatDetail = heartbeatVerified
+        ? "The provider health endpoint returned a fresh heartbeat."
+        : "The provider health endpoint did not return a matching heartbeat timestamp.";
+    } catch (error) {
+      heartbeatDetail = error instanceof Error ? error.message : "The provider health endpoint could not be verified.";
+    }
+  }
+
+  const executionEvidence = await getLatestVerifiedAgentExecutionEvidence(record.agentId, marketplaceAgentId);
+  const providerConfig = getProviderServiceConfig();
+  const providerProfile = getProviderProfileForAgent(record.agentId, providerConfig);
+  const providerSigner = getProviderSignerStatus(record.agentId);
+  const bootstrapEligible = Boolean(
+    providerConfig.ready
+    && providerProfile
+    && providerSigner.configured
+    && metadata.executionEndpoint
+    && providerEndpointMatches(metadata.executionEndpoint, providerConfig)
+    && providerSigner.address
+    && record.owner
+    && record.owner.toLowerCase() === providerSigner.address.toLowerCase(),
+  );
+  return assessAgentServiceReadiness({
+    checkedAt,
+    endpoint: { url: metadata.executionEndpoint, verified: endpointVerified, detail: endpointDetail },
+    x402Supported: metadata.x402Supported,
+    pricing: metadata.pricing,
+    heartbeat: { verified: heartbeatVerified, heartbeatAt, detail: heartbeatDetail },
+    executionEvidence,
+    bootstrapEligible,
+    expectedPaymentCurrency: BSC_ERC8183_PAYMENT_CURRENCY,
+  });
+}
+
+function getDirectMarketplaceAgentById(agentId: string): Promise<Agent | undefined> {
+  const cached = directAgentCache.get(agentId);
+  if (cached && cached.expiresAt > Date.now()) return Promise.resolve(cached.agent);
+
+  const pending = pendingDirectAgentLookups.get(agentId);
+  if (pending) return pending;
+
+  const lookup = getERC8004AgentById(agentId)
+    .then(async (record) => {
+      if (!record) return undefined;
+      const checkedAt = new Date().toISOString();
+      const marketplaceAgentId = `erc8004-bsc-${record.agentId}`;
+      const serviceReadiness = await verifyLiveServiceReadiness(record, marketplaceAgentId, checkedAt);
+      const agent = mapLiveRecord(record, checkedAt, serviceReadiness);
+      directAgentCache.set(agentId, { agent, expiresAt: Date.now() + DIRECT_AGENT_CACHE_MS });
+      return agent;
+    })
+    .catch(() => undefined)
+    .finally(() => {
+      pendingDirectAgentLookups.delete(agentId);
+    });
+
+  pendingDirectAgentLookups.set(agentId, lookup);
+  return lookup;
 }

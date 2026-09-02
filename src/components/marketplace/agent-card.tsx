@@ -9,7 +9,7 @@ import {
   ShieldCheck,
 } from "@phosphor-icons/react";
 import { getCategoryDefinition } from "@/lib/marketplace/categories";
-import type { Agent, AgentCategory } from "@/lib/marketplace/types";
+import { isAgentHireable, type Agent, type AgentCategory } from "@/lib/marketplace/types";
 
 interface AgentCardProps {
   agent: Agent;
@@ -24,7 +24,7 @@ function displayValue(value?: string | number) {
 export function AgentCard({ agent, selected = false, onToggleCompare }: AgentCardProps) {
   const category = getCategoryDefinition(agent.category);
   const primaryMetric = agent.categoryMetrics[0];
-  const isHireable = agent.hiring.available;
+  const isHireable = isAgentHireable(agent);
   const isLiveVerified = agent.mode === "live" && agent.verified && agent.deployment.availability === "live";
 
   return (
@@ -114,10 +114,10 @@ export function AgentCard({ agent, selected = false, onToggleCompare }: AgentCar
         </a>
         <a
           href={`/hire/${agent.slug}`}
-          className="inline-flex min-h-11 flex-1 items-center justify-center rounded-full bg-brand px-4 py-2 text-sm font-semibold text-black transition-all duration-700 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-[#ffd34f] active:translate-y-px focus:outline-none focus:ring-2 focus:ring-brand focus:ring-offset-2 focus:ring-offset-surface"
-          title="Open the wallet-gated hiring wizard for this agent"
+          className={`inline-flex min-h-11 flex-1 items-center justify-center rounded-full px-4 py-2 text-sm font-semibold transition-all duration-700 ease-[cubic-bezier(0.32,0.72,0,1)] active:translate-y-px focus:outline-none focus:ring-2 focus:ring-brand focus:ring-offset-2 focus:ring-offset-surface ${isHireable ? "bg-brand text-black hover:bg-[#ffd34f]" : "border border-surface-border text-muted hover:border-[#6a6a6a] hover:bg-black hover:text-foreground"}`}
+          title={isHireable ? "Start a task with this agent" : agent.hiring.reason ?? "This agent is not ready for hiring"}
         >
-          Hire
+          {isHireable ? "Start task" : "Preview"}
         </a>
       </div>
     </article>

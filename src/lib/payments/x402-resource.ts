@@ -1,9 +1,13 @@
-import { createPublicClient, createWalletClient, http, type Address, type Hex } from "viem";
+import { createPublicClient, createWalletClient, http, isAddress, verifyMessage, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { bsc, bscTestnet } from "viem/chains";
 import { x402Facilitator } from "@x402/core/facilitator";
 import { registerExactEvmScheme as registerExactEvmFacilitatorScheme } from "@x402/evm/exact/facilitator";
+import { PERMIT2_ADDRESS } from "@x402/evm";
 import { getERC8183Config } from "@/lib/chain/erc8183-adapter";
+import { assertPermissionAllows, PermissionPolicyError } from "@/lib/marketplace/permission-policy";
+import type { SessionPermission } from "@/lib/marketplace/types";
+import { x402PaymentBindingMessage } from "@/lib/payments/x402-binding";
 
 export interface X402ResourceChallengeInput {
   jobId: string;
@@ -22,6 +26,19 @@ export interface X402ResourceStatus {
 }
 
 const DEFAULT_RESOURCE_AMOUNT = "100000000000000000";
+const X402_SETTLEMENT_GAS_LIMIT = BigInt(150_000);
+
+export function getX402SettlementTransactionOverrides(requestedGas?: bigint, gasPrice?: bigint): {
+  gas: bigint;
+  value: bigint;
+  gasPrice?: bigint;
+} {
+  const overrides = {
+    gas: requestedGas ?? X402_SETTLEMENT_GAS_LIMIT,
+    value: BigInt(0),
+  } as const;
+  return gasPrice === undefined ? overrides : { ...overrides, gasPrice };
+}
 
 function readServerEnv(...keys: string[]) {
   for (const key of keys) {
@@ -41,9 +58,7 @@ export function getX402ResourceStatus(): X402ResourceStatus {
   const erc = getERC8183Config();
   if (!erc.enabled) return { enabled: false, reason: erc.reason };
   const recipient = readServerEnv("X402_PAYEE_ADDRESS") ?? readServerEnv("NEXT_PUBLIC_X402_PAYEE_ADDRESS");
-  if (!recipient || !recipient.startsWith("0x")) {
-    return { enabled: false, reason: "Set X402_PAYEE_ADDRESS to the agent wallet that receives $U." };
-  }
+  if (recipient && !isAddress(recipient)) return { enabled: false, reason: "The optional X402_PAYEE_ADDRESS is not a valid wallet address." };
   const signerKey = readServerEnv("X402_FACILITATOR_KEY");
   if (!signerKey?.startsWith("0x")) {
     return {
@@ -53,7 +68,7 @@ export function getX402ResourceStatus(): X402ResourceStatus {
   }
   return {
     enabled: true,
-    recipient: recipient as Address,
+    recipient: recipient as Address | undefined,
     amount: readServerEnv("X402_RESOURCE_AMOUNT") ?? DEFAULT_RESOURCE_AMOUNT,
   };
 }
@@ -83,23 +98,93 @@ export function buildPaymentRequirements(input: X402ResourceChallengeInput) {
   ];
 }
 
+interface DecodedPaymentRequirements {
+  amount?: string;
+  asset?: string;
+  payTo?: string;
+  scheme?: string;
+  network?: string;
+  maxTimeoutSeconds?: number;
+  extra?: { assetTransferMethod?: string };
+}
+
 interface DecodedPayment {
-  requirements?: { amount?: string; asset?: string; payTo?: string; scheme?: string; network?: string };
+  requirements?: DecodedPaymentRequirements;
+  resourceUrl?: string;
+  raw?: Record<string, unknown>;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function resourceUrlFromValue(value: unknown) {
+  if (typeof value === "string") return value;
+  if (isRecord(value) && typeof value.url === "string") return value.url;
+  return undefined;
 }
 
 function decodePaymentHeader(header: string | null): DecodedPayment | undefined {
   if (!header) return undefined;
   try {
     const raw = Buffer.from(header.trim(), "base64").toString("utf8");
-    const decoded = JSON.parse(raw) as Record<string, unknown>;
-    const accepted = (decoded as { accepted?: unknown }).accepted;
-    if (accepted && typeof accepted === "object") return { requirements: accepted as DecodedPayment["requirements"] };
-    const inner = (decoded as { payload?: { accepted?: unknown } }).payload?.accepted;
-    if (inner && typeof inner === "object") return { requirements: inner as DecodedPayment["requirements"] };
-    return decoded as DecodedPayment;
+    const decoded = JSON.parse(raw) as unknown;
+    if (!isRecord(decoded)) return undefined;
+    const payload = isRecord(decoded.payload) ? decoded.payload : undefined;
+    const accepted = isRecord(decoded.accepted)
+      ? decoded.accepted
+      : payload && isRecord(payload.accepted)
+        ? payload.accepted
+        : decoded;
+    return {
+      requirements: accepted as DecodedPaymentRequirements,
+      resourceUrl: resourceUrlFromValue(decoded.resource)
+        ?? resourceUrlFromValue(payload?.resource)
+        ?? resourceUrlFromValue(accepted.resource),
+      raw: decoded,
+    };
   } catch {
     return undefined;
   }
+}
+
+function sortedSearchParams(url: URL) {
+  return [...url.searchParams.entries()].sort(([leftKey, leftValue], [rightKey, rightValue]) =>
+    leftKey.localeCompare(rightKey) || leftValue.localeCompare(rightValue));
+}
+
+export function x402ResourceMatchesJob(input: {
+  actualResourceUrl?: string;
+  expectedResourceUrl: string;
+  jobId: string;
+  agentId: string;
+}) {
+  if (!input.actualResourceUrl || !input.expectedResourceUrl || !input.jobId || !input.agentId) return false;
+
+  let actual: URL;
+  let expected: URL;
+  try {
+    actual = new URL(input.actualResourceUrl);
+    expected = new URL(input.expectedResourceUrl);
+  } catch {
+    return false;
+  }
+
+  if (
+    actual.origin !== expected.origin
+    || actual.pathname !== expected.pathname
+    || actual.username
+    || actual.password
+    || expected.username
+    || expected.password
+    || actual.hash !== expected.hash
+  ) {
+    return false;
+  }
+
+  if (JSON.stringify(sortedSearchParams(actual)) !== JSON.stringify(sortedSearchParams(expected))) return false;
+  return actual.searchParams.get("jobId") === input.jobId
+    && actual.searchParams.get("agentId") === input.agentId;
 }
 
 let cachedFacilitator: { facilitator: x402Facilitator; chainId: number } | undefined;
@@ -115,6 +200,7 @@ function getFacilitator() {
   const walletClient = createWalletClient({ account, chain, transport: http(erc.rpcUrl, { timeout: 20_000 }) });
   const signer = {
     address: account.address,
+    getAddresses: () => [account.address] as const,
     signTypedData: async (message: Parameters<typeof account.signTypedData>[0]) =>
       account.signTypedData({
         domain: message.domain,
@@ -131,13 +217,60 @@ function getFacilitator() {
       Number(await publicClient.getTransactionCount({ address: address as Address })),
     estimateFeesPerGas: () => publicClient.estimateFeesPerGas(),
     sendTransaction: async ({ to, data }: { to: string; data: string }) => {
-      const hash = await walletClient.sendTransaction({
+      return walletClient.sendTransaction({
         to: to as Address,
         data: data as Hex,
+        account,
+        chain,
       });
-      await publicClient.waitForTransactionReceipt({ hash });
-      return hash;
     },
+    writeContract: async ({
+      address,
+      abi,
+      functionName,
+      args,
+      gas,
+      dataSuffix,
+    }: {
+      address: Address;
+      abi: readonly unknown[];
+      functionName: string;
+      args: readonly unknown[];
+      gas?: bigint;
+      dataSuffix?: Hex;
+    }) => {
+      // BSC is a legacy-fee network in practice. Supplying gasPrice prevents
+      // viem from reserving an inflated EIP-1559 max fee on the facilitator.
+      const gasPrice = await publicClient.getGasPrice();
+      const transactionOverrides = getX402SettlementTransactionOverrides(gas, gasPrice);
+      const facilitatorBalance = await publicClient.getBalance({ address: account.address });
+      const estimatedNativeCost = transactionOverrides.gas * gasPrice + transactionOverrides.value;
+      console.info("[x402] facilitator settlement preflight", {
+        facilitatorAddress: account.address,
+        balanceWei: facilitatorBalance.toString(),
+        gasPriceWei: gasPrice.toString(),
+        gasLimit: transactionOverrides.gas.toString(),
+        estimatedNativeCostWei: estimatedNativeCost.toString(),
+      });
+      if (facilitatorBalance < estimatedNativeCost) {
+        throw new Error("The x402 facilitator wallet does not have enough BNB for settlement gas.");
+      }
+      return walletClient.writeContract({
+        address,
+        abi,
+        functionName,
+        args,
+        account,
+        chain,
+        type: "legacy",
+        gas: transactionOverrides.gas,
+        value: transactionOverrides.value,
+        gasPrice: transactionOverrides.gasPrice,
+        dataSuffix,
+      } as never);
+    },
+    waitForTransactionReceipt: ({ hash }: { hash: Hex }) =>
+      publicClient.waitForTransactionReceipt({ hash }),
   };
   const facilitator = new x402Facilitator();
   registerExactEvmFacilitatorScheme(facilitator as never, {
@@ -165,14 +298,51 @@ export async function settleFromPaymentHeader(input: {
   expectedAmount: string;
   expectedAsset: Address;
   expectedRecipient: Address;
-  jobId?: string;
-  agentId?: string;
-  resourceUrl?: string;
+  expectedPayer: Address;
+  bindingSignature: string | null;
+  jobId: string;
+  agentId: string;
+  resourceUrl: string;
+  permission: SessionPermission;
+  tokenDecimals: number;
+  currency: string;
+  spentAmountAtomic: bigint;
 }): Promise<SettleWithHeaderResult> {
+  let expectedAmountAtomic: bigint;
+  try {
+    expectedAmountAtomic = BigInt(input.expectedAmount);
+  } catch {
+    return { status: "rejected", errorReason: "The expected payment amount is invalid." };
+  }
+  try {
+    assertPermissionAllows({
+      permission: input.permission,
+      action: "x402-payment",
+      contractAddress: PERMIT2_ADDRESS,
+      tokenAddress: input.expectedAsset,
+      amountAtomic: expectedAmountAtomic,
+      tokenDecimals: input.tokenDecimals,
+      currency: input.currency,
+      spentAmountAtomic: input.spentAmountAtomic,
+    });
+  } catch (error) {
+    if (error instanceof PermissionPolicyError) return { status: "rejected", errorReason: error.message };
+    return { status: "rejected", errorReason: "The payment permission could not be verified." };
+  }
   const decoded = decodePaymentHeader(input.paymentHeader);
   const requirements = decoded?.requirements;
-  if (!requirements?.amount || !requirements.asset || !requirements.payTo) {
+  const erc = getERC8183Config();
+  if (
+    typeof requirements?.amount !== "string"
+    || typeof requirements.asset !== "string"
+    || typeof requirements.payTo !== "string"
+    || !isAddress(requirements.asset)
+    || !isAddress(requirements.payTo)
+  ) {
     return { status: "rejected", errorReason: "The payment header was missing or malformed." };
+  }
+  if (requirements.scheme !== "exact" || requirements.network !== erc.network || requirements.extra?.assetTransferMethod !== "permit2") {
+    return { status: "rejected", errorReason: "The payment method does not match the configured x402 scheme." };
   }
   if (requirements.amount !== input.expectedAmount) {
     return { status: "rejected", errorReason: "The payment amount does not match the challenge." };
@@ -183,31 +353,76 @@ export async function settleFromPaymentHeader(input: {
   if (requirements.payTo.toLowerCase() !== input.expectedRecipient.toLowerCase()) {
     return { status: "rejected", errorReason: "The payment recipient does not match the challenge." };
   }
-  let rawPayload: Record<string, unknown>;
-  try {
-    const raw = Buffer.from((input.paymentHeader ?? "").trim(), "base64").toString("utf8");
-    rawPayload = JSON.parse(raw) as Record<string, unknown>;
-  } catch {
-    return { status: "rejected", errorReason: "The payment payload could not be decoded." };
+
+  if (
+    decoded?.raw?.x402Version !== 2
+    || !isRecord(decoded.raw.resource)
+    || typeof decoded.raw.resource.url !== "string"
+    || !isRecord(decoded.raw.payload)
+    || !x402ResourceMatchesJob({
+      actualResourceUrl: decoded.resourceUrl,
+      expectedResourceUrl: input.resourceUrl,
+      jobId: input.jobId,
+      agentId: input.agentId,
+    })
+  ) {
+    return { status: "rejected", errorReason: "The payment resource metadata does not match this job and agent." };
   }
+
+  if (!input.bindingSignature || !/^0x[a-fA-F0-9]+$/.test(input.bindingSignature)) {
+    return { status: "rejected", errorReason: "The payment is missing its job binding signature." };
+  }
+
+  let bindingValid = false;
+  try {
+    bindingValid = await verifyMessage({
+      address: input.expectedPayer,
+      message: x402PaymentBindingMessage({
+        jobId: input.jobId,
+        agentId: input.agentId,
+        resourceUrl: input.resourceUrl,
+        amount: input.expectedAmount,
+        asset: input.expectedAsset,
+        recipient: input.expectedRecipient,
+        network: erc.network,
+      }),
+      signature: input.bindingSignature as Hex,
+    });
+  } catch {
+    bindingValid = false;
+  }
+  if (!bindingValid) {
+    return { status: "rejected", errorReason: "The payment binding signature does not match the job client, job, or agent." };
+  }
+
   try {
     const { facilitator } = getFacilitator();
-    const erc = getERC8183Config();
+    const serverRequirements = {
+      scheme: "exact" as const,
+      network: erc.network,
+      amount: input.expectedAmount,
+      asset: input.expectedAsset,
+      payTo: input.expectedRecipient,
+      maxTimeoutSeconds: 900,
+      extra: { assetTransferMethod: "permit2" },
+    };
     const paymentPayload = {
       x402Version: 2,
-      resource: { url: "", description: "BNB Agent Studio hire", mimeType: "application/json" },
-      payload: rawPayload.payload ?? rawPayload,
-      accepted: requirements,
+      resource: { url: input.resourceUrl, description: "BNB Agent Studio hire", mimeType: "application/json" },
+      payload: decoded.raw?.payload,
+      accepted: serverRequirements,
     } as never;
-    const verifyResponse = await facilitator.verify(paymentPayload, requirements as never);
+    const verifyResponse = await facilitator.verify(paymentPayload, serverRequirements as never);
     if (!verifyResponse.isValid) {
       return { status: "rejected", errorReason: verifyResponse.invalidReason ?? "Verification failed." };
     }
-    const settleResponse = await facilitator.settle(paymentPayload, requirements as never);
+    if (!verifyResponse.payer || verifyResponse.payer.toLowerCase() !== input.expectedPayer.toLowerCase()) {
+      return { status: "rejected", errorReason: "The payment payer does not match the job client." };
+    }
+    const settleResponse = await facilitator.settle(paymentPayload, serverRequirements as never);
     if (!settleResponse.success || !settleResponse.transaction) {
       return { status: "rejected", errorReason: settleResponse.errorReason ?? "Settlement failed.", payer: verifyResponse.payer };
     }
-    void erc;
     return { status: "paid", transactionHash: settleResponse.transaction, payer: verifyResponse.payer };
   } catch (error) {
     return {

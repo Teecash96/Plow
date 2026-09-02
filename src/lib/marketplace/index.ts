@@ -6,6 +6,8 @@ export {
 export { AGENT_REGISTRY, AGENTS, DEMO_AGENTS, LIVE_AGENTS, getAgentById } from "./agents";
 export { getMarketplaceAgentById, getMarketplaceRegistry } from "./registry";
 export { getHireSetupStatus } from "./hire-setup";
+export { createSandboxJob, saveSandboxJob } from "./sandbox";
+export { getJobProofEvents } from "./job-proof";
 export { appendLocalStatus, createLocalJob, getLocalJob, readJobs, updateLocalJob, writeJobs } from "./job-store";
 export type {
   Agent,
@@ -15,6 +17,8 @@ export type {
   RegistryCategory,
   AgentDeployment,
   AgentMode,
+  AgentReadinessCheck,
+  AgentServiceReadiness,
   AgentHiringReadiness,
   AgentIdentity,
   AgentIntegrations,
@@ -24,8 +28,13 @@ export type {
   Evidence,
   EvidenceKind,
   EvidenceStatus,
+  FundMovingAction,
+  FundMovingActionStatus,
   FreshnessState,
   Job,
+  JobMode,
+  JobSimulation,
+  JobSimulationStep,
   JobStatus,
   JobStatusChange,
   JobTerms,

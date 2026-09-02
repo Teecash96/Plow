@@ -45,6 +45,18 @@ export function getHireSetupStatus(agent?: Agent): HireSetupStatus {
       detail: erc.paymentTokenConfigured ? "ERC 20 payment token is configured." : "Set PAYMENT_TOKEN_ADDRESS.",
     },
     {
+      key: "erc8183-router",
+      label: "ERC 8183 evaluator router",
+      state: erc.routerConfigured ? "ready" : "blocked",
+      detail: erc.routerConfigured ? "The canonical evaluator router is configured." : "Set ERC8183_ROUTER_ADDRESS.",
+    },
+    {
+      key: "erc8183-policy",
+      label: "ERC 8183 policy",
+      state: erc.policyConfigured ? "ready" : "blocked",
+      detail: erc.policyConfigured ? "The evaluator policy is configured." : "Set ERC8183_POLICY_ADDRESS.",
+    },
+    {
       key: "x402-resource",
       label: "x402 resource",
       state: x402.resourceUrl ? "ready" : "blocked",
@@ -76,14 +88,22 @@ export function getHireSetupStatus(agent?: Agent): HireSetupStatus {
     {
       key: "evaluator",
       label: "ERC 8183 evaluator",
-      state: erc.evaluatorConfigured ? "ready" : "optional",
-      detail: erc.evaluatorConfigured ? "Configured evaluator address will be used." : "Optional. The buyer wallet becomes evaluator when omitted.",
+      state: erc.routerConfigured || erc.evaluatorConfigured ? "ready" : "blocked",
+      detail: erc.routerConfigured
+        ? "The evaluator router will be bound to the job."
+        : erc.evaluatorConfigured
+          ? "Configured evaluator address will be used."
+          : "The canonical evaluator router is required.",
     },
     {
       key: "hook",
       label: "ERC 8183 hook",
-      state: erc.hookConfigured ? "ready" : "optional",
-      detail: erc.hookConfigured ? "Configured hook address will be used." : "Optional only if the deployment whitelists the zero address.",
+      state: erc.routerConfigured || erc.hookConfigured ? "ready" : "blocked",
+      detail: erc.routerConfigured
+        ? "The evaluator router will be used as the job hook."
+        : erc.hookConfigured
+          ? "Configured hook address will be used."
+          : "The canonical evaluator router is required as the job hook.",
     },
     {
       key: "combined-settlement",
@@ -129,6 +149,8 @@ export function getHireSetupStatus(agent?: Agent): HireSetupStatus {
 
   if (agent) {
     const identityReady = agent.mode === "live" && agent.verified && Boolean(agent.identity.ownerAddress);
+    const service = agent.hiring.service;
+    const serviceReady = service?.available === true;
     checks.push({
       key: "agent-identity",
       label: "Agent identity",
@@ -136,6 +158,38 @@ export function getHireSetupStatus(agent?: Agent): HireSetupStatus {
       detail: identityReady
         ? "Live ERC 8004 identity and provider address are available."
         : "The agent must be live, verified, and have an ERC 8004 provider address. Demo agents stay local.",
+    });
+    checks.push({
+      key: "agent-service-readiness",
+      label: "Agent service readiness",
+      state: serviceReady ? "ready" : "blocked",
+      detail: serviceReady
+        ? "Pricing, freshness, and execution checks are verified."
+        : agent.hiring.reason ?? "Pricing, freshness, and execution checks are required before hiring.",
+    });
+    checks.push({
+      key: "agent-service-endpoint",
+      label: "Controlled HTTPS service",
+      state: service?.endpointVerified ? "ready" : "blocked",
+      detail: service?.endpoint.detail ?? "A Plow execution endpoint must be verified before hiring.",
+    });
+    checks.push({
+      key: "agent-service-price",
+      label: "Verified x402 price",
+      state: service?.pricingVerified ? "ready" : "blocked",
+      detail: service?.pricing.detail ?? "A positive x402 amount and currency are required.",
+    });
+    checks.push({
+      key: "agent-service-heartbeat",
+      label: "Fresh provider heartbeat",
+      state: service?.heartbeatVerified ? "ready" : "blocked",
+      detail: service?.heartbeat.detail ?? "A recent heartbeat from the provider health endpoint is required.",
+    });
+    checks.push({
+      key: "agent-service-evidence",
+      label: "Execution evidence",
+      state: service?.executionEvidenceVerified || service?.bootstrapEligible ? "ready" : "blocked",
+      detail: service?.executionEvidence.detail ?? "A completed execution recorded by Plow is required before hiring.",
     });
   }
 

@@ -1,4 +1,5 @@
 import type { Agent, AgentCategory, EvidenceKind } from "./types";
+import { BSC_ERC8183_PAYMENT_CURRENCY } from "./payment-currency";
 
 const DEMO_CAPTURE = "Demo fixture";
 
@@ -37,7 +38,7 @@ function demoAltanaTemplate(): NonNullable<NonNullable<Agent["integrations"]["al
     status: "draft",
     templateId: "altana-demo-template",
     spendCap: "Demo only",
-    currency: "USDC",
+    currency: BSC_ERC8183_PAYMENT_CURRENCY,
     allowlistedContracts: [],
     allowlistedTokens: [],
     expiresAt: DEMO_CAPTURE,
@@ -119,7 +120,7 @@ export const DEMO_AGENTS = [
     description: "A clearly labeled demo record showing how a rebalancing agent will present range health, fee capture, and rebalance evidence.",
     identity: { standard: "ERC-8004", agentId: "demo-erc8004-rebalancing-001", registryAddress: "Demo registry placeholder", explorerUrl: "", verifiedAt: "Not verified" },
     deployment: { network: "BSC Mainnet", chainId: 56, availability: "unverified", freshnessState: "unknown", heartbeatAt: DEMO_CAPTURE, lastExecutionAt: DEMO_CAPTURE, freshnessSeconds: 0 },
-    pricing: { protocol: "x402", amount: "Demo only", currency: "USDC", unit: "preview request" },
+    pricing: { protocol: "x402", amount: "Demo only", currency: BSC_ERC8183_PAYMENT_CURRENCY, unit: "preview request" },
     performance: demoPerformance(),
     categoryMetrics: [
       { key: "range-health", label: "Range health", value: "Demo only", sampleSize: 0, capturedAt: DEMO_CAPTURE, source: "demo" },
@@ -142,7 +143,7 @@ export const DEMO_AGENTS = [
     description: "A clearly labeled demo record showing how a grid agent will present realised PnL, fill rate, and drawdown evidence.",
     identity: { standard: "ERC-8004", agentId: "demo-erc8004-grid-001", registryAddress: "Demo registry placeholder", explorerUrl: "", verifiedAt: "Not verified" },
     deployment: { network: "BSC Mainnet", chainId: 56, availability: "unverified", freshnessState: "unknown", heartbeatAt: DEMO_CAPTURE, lastExecutionAt: DEMO_CAPTURE, freshnessSeconds: 0 },
-    pricing: { protocol: "x402", amount: "Demo only", currency: "USDC", unit: "preview request" },
+    pricing: { protocol: "x402", amount: "Demo only", currency: BSC_ERC8183_PAYMENT_CURRENCY, unit: "preview request" },
     performance: demoPerformance(),
     categoryMetrics: [
       { key: "realised-pnl", label: "Realised PnL", value: "Demo only", sampleSize: 0, capturedAt: DEMO_CAPTURE, source: "demo" },
@@ -165,7 +166,7 @@ export const DEMO_AGENTS = [
     description: "A clearly labeled demo record showing how a yield agent will present net APY, protocol risk, and withdrawal liquidity evidence.",
     identity: { standard: "ERC-8004", agentId: "demo-erc8004-yield-001", registryAddress: "Demo registry placeholder", explorerUrl: "", verifiedAt: "Not verified" },
     deployment: { network: "BSC Mainnet", chainId: 56, availability: "unverified", freshnessState: "unknown", heartbeatAt: DEMO_CAPTURE, lastExecutionAt: DEMO_CAPTURE, freshnessSeconds: 0 },
-    pricing: { protocol: "x402", amount: "Demo only", currency: "USDC", unit: "preview request" },
+    pricing: { protocol: "x402", amount: "Demo only", currency: BSC_ERC8183_PAYMENT_CURRENCY, unit: "preview request" },
     performance: demoPerformance(),
     categoryMetrics: [
       { key: "net-apy", label: "Net APY", value: "Demo only", sampleSize: 0, capturedAt: DEMO_CAPTURE, source: "demo" },
@@ -188,7 +189,7 @@ export const DEMO_AGENTS = [
     description: "A clearly labeled demo record showing how a health monitor will present current health, alert latency, and response history.",
     identity: { standard: "ERC-8004", agentId: "demo-erc8004-health-001", registryAddress: "Demo registry placeholder", explorerUrl: "", verifiedAt: "Not verified" },
     deployment: { network: "BSC Mainnet", chainId: 56, availability: "unverified", freshnessState: "unknown", heartbeatAt: DEMO_CAPTURE, lastExecutionAt: DEMO_CAPTURE, freshnessSeconds: 0 },
-    pricing: { protocol: "x402", amount: "Demo only", currency: "USDC", unit: "preview request" },
+    pricing: { protocol: "x402", amount: "Demo only", currency: BSC_ERC8183_PAYMENT_CURRENCY, unit: "preview request" },
     performance: demoPerformance(),
     categoryMetrics: [
       { key: "current-health", label: "Current health", value: "Demo only", sampleSize: 0, capturedAt: DEMO_CAPTURE, source: "demo" },
@@ -212,7 +213,7 @@ export const DEMO_AGENTS = [
     description: "A clearly labeled demo record showing how a rebalancing agent will compare target weights, range drift, and fee capture before proposing a position update.",
     identity: { standard: "ERC-8004", agentId: "demo-erc8004-rebalancing-002", registryAddress: "Demo registry placeholder", explorerUrl: "", verifiedAt: "Not verified" },
     deployment: { network: "BSC Mainnet", chainId: 56, availability: "unverified", freshnessState: "unknown", heartbeatAt: DEMO_CAPTURE, lastExecutionAt: DEMO_CAPTURE, freshnessSeconds: 0 },
-    pricing: { protocol: "x402", amount: "Demo only", currency: "USDC", unit: "preview request" },
+    pricing: { protocol: "x402", amount: "Demo only", currency: BSC_ERC8183_PAYMENT_CURRENCY, unit: "preview request" },
     performance: demoPerformance(),
     categoryMetrics: [
       { key: "range-health-compass", label: "Range health", value: "Demo only", sampleSize: 0, capturedAt: DEMO_CAPTURE, source: "demo" },
@@ -236,7 +237,7 @@ export const DEMO_AGENTS = [
     description: "A clearly labeled demo record showing how a yield agent will compare net APY, protocol concentration, TVL limits, and withdrawal liquidity without claiming live returns.",
     identity: { standard: "ERC-8004", agentId: "demo-erc8004-yield-002", registryAddress: "Demo registry placeholder", explorerUrl: "", verifiedAt: "Not verified" },
     deployment: { network: "BSC Mainnet", chainId: 56, availability: "unverified", freshnessState: "unknown", heartbeatAt: DEMO_CAPTURE, lastExecutionAt: DEMO_CAPTURE, freshnessSeconds: 0 },
-    pricing: { protocol: "x402", amount: "Demo only", currency: "USDC", unit: "preview request" },
+    pricing: { protocol: "x402", amount: "Demo only", currency: BSC_ERC8183_PAYMENT_CURRENCY, unit: "preview request" },
     performance: demoPerformance(),
     categoryMetrics: [
       { key: "net-apy-vault-scout", label: "Net APY", value: "Demo only", sampleSize: 0, capturedAt: DEMO_CAPTURE, source: "demo" },
@@ -260,7 +261,7 @@ export const DEMO_AGENTS = [
     description: "A clearly labeled demo record showing how a health factor agent will track collateral, liquidation distance, alert latency, and response history.",
     identity: { standard: "ERC-8004", agentId: "demo-erc8004-health-002", registryAddress: "Demo registry placeholder", explorerUrl: "", verifiedAt: "Not verified" },
     deployment: { network: "BSC Mainnet", chainId: 56, availability: "unverified", freshnessState: "unknown", heartbeatAt: DEMO_CAPTURE, lastExecutionAt: DEMO_CAPTURE, freshnessSeconds: 0 },
-    pricing: { protocol: "x402", amount: "Demo only", currency: "USDC", unit: "preview request" },
+    pricing: { protocol: "x402", amount: "Demo only", currency: BSC_ERC8183_PAYMENT_CURRENCY, unit: "preview request" },
     performance: demoPerformance(),
     categoryMetrics: [
       { key: "current-health-collateral-watch", label: "Current health", value: "Demo only", sampleSize: 0, capturedAt: DEMO_CAPTURE, source: "demo" },

@@ -2,6 +2,7 @@
 
 import { ArrowCounterClockwise, LockKey, ShieldCheck } from "@phosphor-icons/react";
 import { useState } from "react";
+import { updateRemoteJob } from "@/lib/marketplace/job-api";
 import { updateLocalJob } from "@/lib/marketplace/job-store";
 import type { AltanaPermissionTemplate, SessionPermission } from "@/lib/marketplace/types";
 
@@ -16,14 +17,14 @@ interface AltanaPermissionPanelProps {
 function statusLabel(permission?: PermissionLike) {
   if (!permission) return "Not configured";
   if (permission.status === "revoked" || ("revokedAt" in permission && permission.revokedAt)) return "Revoked";
-  if (permission.status === "active") return "Active on Altana";
+  if (permission.status === "active") return "Active policy";
   if (permission.status === "draft") return "Draft boundary";
   return "Not configured";
 }
 
 function statusClass(permission?: PermissionLike) {
   const status = statusLabel(permission);
-  if (status === "Active on Altana") return "border-[#5a9876] bg-[#10261c] text-positive";
+  if (status === "Active policy") return "border-[#5a9876] bg-[#10261c] text-positive";
   if (status === "Revoked") return "border-[#ad6565] bg-[#281313] text-negative";
   return "border-[#9a843c] bg-[#211d0d] text-[#e8d995]";
 }
@@ -36,6 +37,7 @@ function permissionForJob(permission: PermissionLike, revokedAt: string): Sessio
     allowlistedContracts: permission.allowlistedContracts,
     allowlistedTokens: permission.allowlistedTokens,
     expiresAt: permission.expiresAt,
+    expiresAtTimestamp: permission.expiresAtTimestamp,
     status: "revoked",
     templateId: permission.templateId,
     revokeSupported: permission.revokeSupported,
@@ -48,17 +50,26 @@ function permissionForJob(permission: PermissionLike, revokedAt: string): Sessio
 export function AltanaPermissionPanel({ permission, jobId, mode = "preview" }: AltanaPermissionPanelProps) {
   const [localPermission, setLocalPermission] = useState<PermissionLike | undefined>(permission);
   const [revokeMessage, setRevokeMessage] = useState<string>();
+  const [saving, setSaving] = useState(false);
   const contracts = localPermission?.allowlistedContracts ?? [];
   const tokens = localPermission?.allowlistedTokens ?? [];
   const revoked = statusLabel(localPermission) === "Revoked";
 
-  function requestRevoke() {
+  async function requestRevoke() {
     if (!localPermission || !jobId || revoked) return;
     const revokedAt = new Date().toISOString();
     const next = permissionForJob(localPermission, revokedAt);
-    updateLocalJob(jobId, { permission: next });
-    setLocalPermission(next);
-    setRevokeMessage("Local revoke intent saved. An Altana transaction is still required.");
+    setSaving(true);
+    try {
+      await updateRemoteJob(jobId, { permission: next });
+      updateLocalJob(jobId, { permission: next });
+      setLocalPermission(next);
+      setRevokeMessage("Permission revoked on the server. New wallet transactions and agent executions will be rejected.");
+    } catch {
+      setRevokeMessage("The server record was not updated. The permission remains active.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -98,14 +109,14 @@ export function AltanaPermissionPanel({ permission, jobId, mode = "preview" }: A
 
           <div className="mt-5 flex items-start gap-2 rounded-2xl border border-surface-border bg-black px-4 py-3 text-xs leading-5 text-muted">
             <ShieldCheck size={16} className="mt-0.5 shrink-0 text-brand" />
-            <span>{mode === "job" ? "This record shows the permission data saved with the job. It does not grant execution access by itself." : "Draft only. Nothing is signed and no session key is active."}</span>
+            <span>{mode === "job" ? "Plow enforces this policy before wallet transactions and agent execution. It is not an Altana session key." : "Draft only. Live submission activates Plow policy checks before any wallet transaction."}</span>
           </div>
 
           <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
             <p className="break-words text-xs text-muted">Template {localPermission.templateId ?? "Not assigned"} · Updated {localPermission.lastUpdatedAt ?? "Not yet"}</p>
-            <button type="button" onClick={requestRevoke} disabled={!jobId || revoked} className="inline-flex min-h-11 items-center gap-2 rounded-full border border-surface-border px-3 py-2 text-xs font-semibold text-muted transition-colors hover:border-[#6a6a6a] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-brand" title={!jobId ? "Available after a job has a permission record" : revoked ? "Permission is already marked revoked" : "Record a local revoke intent"}>
+            <button type="button" onClick={requestRevoke} disabled={!jobId || revoked || saving} className="inline-flex min-h-11 items-center gap-2 rounded-full border border-surface-border px-3 py-2 text-xs font-semibold text-muted transition-colors hover:border-[#6a6a6a] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-brand" title={!jobId ? "Available after a job has a permission record" : revoked ? "Permission is already marked revoked" : "Record a revoke intent"}>
               <ArrowCounterClockwise size={15} />
-              {revoked ? "Revoked" : "Revoke permission"}
+              {saving ? "Saving" : revoked ? "Revoked" : "Revoke permission"}
             </button>
           </div>
           {revokeMessage ? <p className="mt-3 text-xs text-warning">{revokeMessage}</p> : null}

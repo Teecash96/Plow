@@ -1,19 +1,26 @@
 import {
   createPublicClient,
-  http,
-  parseAbi,
   parseAbiItem,
   zeroAddress,
   type Address,
   type PublicClient,
 } from "viem";
 import { bsc } from "viem/chains";
+import {
+  BSC_MAINNET_CHAIN_ID,
+  ERC8004_IDENTITY_REGISTRY_ABI,
+  ERC8004_IDENTITY_REGISTRY_ADDRESS,
+} from "./erc8004-contract";
+import { createBscMainnetTransport, DEFAULT_BSC_MAINNET_RPC_URL } from "./bsc-mainnet-rpc";
 
-export const BSC_MAINNET_CHAIN_ID = 56;
-export const ERC8004_IDENTITY_REGISTRY_ADDRESS = "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432" as Address;
-export const ERC8004_REGISTRY_EXPLORER_URL = `https://bscscan.com/address/${ERC8004_IDENTITY_REGISTRY_ADDRESS}`;
+export {
+  BSC_MAINNET_CHAIN_ID,
+  ERC8004_IDENTITY_REGISTRY_ABI,
+  ERC8004_IDENTITY_REGISTRY_ADDRESS,
+  ERC8004_REGISTRY_EXPLORER_URL,
+} from "./erc8004-contract";
 
-const DEFAULT_BSC_RPC_URL = "https://bsc.publicnode.com";
+
 // Public BSC RPC endpoints commonly limit historical log queries. The default
 // asks for a wider window, then falls back to a bounded recent window when the
 // endpoint does not support archive logs. Operators can set ERC8004_SCAN_BLOCKS
@@ -28,9 +35,7 @@ const DEFAULT_INDEXER_URL = "https://8004scan.io/api/v1/agents/latest";
 const MAX_SCAN_BLOCKS = BigInt(5_000_000);
 const MAX_LOG_CHUNK = BigInt(10_000);
 
-const IDENTITY_REGISTRY_ABI = parseAbi([
-  "function tokenURI(uint256 tokenId) view returns (string)",
-]);
+const IDENTITY_REGISTRY_ABI = ERC8004_IDENTITY_REGISTRY_ABI;
 
 const REGISTERED_EVENT = parseAbiItem(
   "event Registered(uint256 indexed agentId, string agentURI, address indexed owner)",
@@ -126,7 +131,7 @@ interface RegistrationCandidate {
 function configuredRpcUrl() {
   // ERC-8004 lives on BSC Mainnet — never point it at the testnet chain.
   // BSC_RPC_URL / NEXT_PUBLIC_BSC_RPC_URL belong to the hire escrow stack (chain 97).
-  return process.env.ERC8004_RPC_URL?.trim() || process.env.NEXT_PUBLIC_ERC8004_RPC_URL?.trim() || DEFAULT_BSC_RPC_URL;
+  return process.env.ERC8004_RPC_URL?.trim() || process.env.NEXT_PUBLIC_ERC8004_RPC_URL?.trim() || DEFAULT_BSC_MAINNET_RPC_URL;
 }
 
 function configuredScanBlocks() {
@@ -216,7 +221,7 @@ export function getERC8004Config(): ERC8004DiscoveryConfig {
 export function createBscPublicClient(rpcUrl = configuredRpcUrl()): PublicClient {
   return createPublicClient({
     chain: bsc,
-    transport: http(rpcUrl, { timeout: REQUEST_TIMEOUT_MS }),
+    transport: createBscMainnetTransport(rpcUrl, REQUEST_TIMEOUT_MS),
   });
 }
 
@@ -337,6 +342,59 @@ async function fetchMetadata(uri: string): Promise<MetadataFetchResult> {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+export async function getERC8004AgentById(
+  agentId: string,
+  options: { client?: PublicClient } = {},
+): Promise<ERC8004RegistrationRecord | undefined> {
+  const normalizedAgentId = agentId.trim();
+  if (!/^\d+$/.test(normalizedAgentId)) return undefined;
+
+  const client = options.client ?? createBscPublicClient();
+  const tokenId = BigInt(normalizedAgentId);
+  let agentURI: string;
+  try {
+    agentURI = await client.readContract({
+      address: ERC8004_IDENTITY_REGISTRY_ADDRESS,
+      abi: IDENTITY_REGISTRY_ABI,
+      functionName: "tokenURI",
+      args: [tokenId],
+    });
+  } catch {
+    return undefined;
+  }
+  if (!agentURI.trim()) return undefined;
+
+  let owner: Address | undefined;
+  try {
+    const ownerResult = await client.readContract({
+      address: ERC8004_IDENTITY_REGISTRY_ADDRESS,
+      abi: IDENTITY_REGISTRY_ABI,
+      functionName: "ownerOf",
+      args: [tokenId],
+    });
+    if (/^0x[a-fA-F0-9]{40}$/.test(ownerResult)) owner = ownerResult;
+  } catch {
+    // Some registry deployments expose tokenURI without the ERC 721 ownerOf view.
+    // The identity is still verified by the successful tokenURI read.
+  }
+
+  const metadata = await fetchMetadata(agentURI);
+  return {
+    agentId: normalizedAgentId,
+    agentURI,
+    owner,
+    metadata: metadata.metadata,
+    metadataError: metadata.error,
+    metadataStatus: metadata.status,
+    metadataUriResolved: metadata.resolvedUri,
+    endpoints: metadata.endpoints,
+    capabilities: metadata.capabilities,
+    tags: metadata.tags,
+    source: "rpc",
+    identityVerified: true,
+  } satisfies ERC8004RegistrationRecord;
 }
 
 interface IndexerDiscoveryResult {

@@ -9,7 +9,7 @@ export async function generateMetadata({ params }: JobDetailPageProps): Promise<
   const { jobId } = await params;
   return {
     title: `Job ${jobId} | BNB Agent Studio`,
-    description: "Review a local job draft, terms, payment preview, result state, and status timeline.",
+    description: "Review a saved job, terms, payment preview, result state, and status timeline.",
   };
 }
 

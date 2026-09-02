@@ -5,6 +5,9 @@ import { decodePaymentResponseHeader } from "@x402/core/http";
 import type { Address, PublicClient } from "viem";
 import { isAddress } from "viem";
 import { getERC8183Config, ensureERC20Allowance, type ConnectedBscWallet, type ERC8183Network } from "@/lib/chain/erc8183-adapter";
+import { assertPermissionAllows } from "@/lib/marketplace/permission-policy";
+import type { SessionPermission } from "@/lib/marketplace/types";
+import { x402PaymentBindingMessage } from "@/lib/payments/x402-binding";
 
 export interface X402Config {
   resourceUrl?: string;
@@ -46,6 +49,7 @@ export interface X402SettlementResult {
   paymentPayload?: PaymentPayload;
   receiptId?: string;
   transactionHash?: string;
+  serverRecorded?: boolean;
   reason?: string;
 }
 
@@ -263,10 +267,8 @@ export function verifyX402Challenge(
     if (expected.asset && requirement.asset.toLowerCase() !== expected.asset.toLowerCase()) return false;
     const recipient = requirementRecipient(requirement);
     if (!recipient || !isAddress(recipient)) return false;
-    // Internal /api/x402/resource settles against a fixed server payee, not the registry provider — skip recipient pin.
     const isInternalResource = expectedResource === "/api/x402/resource" || Boolean(expectedResource?.startsWith("/api/x402"));
-    void expected.recipient;
-    void isInternalResource;
+    if (!isInternalResource && expected.recipient && recipient.toLowerCase() !== expected.recipient.toLowerCase()) return false;
     const resource = requirementResource(requirement) ?? paymentRequired.resource?.url;
     if (!resource || !resource.includes(expected.jobId) || !resource.includes(expected.agentId)) return false;
     if (expectedResource) {
@@ -319,6 +321,11 @@ export async function settleX402Payment(input: {
   paymentRequired: PaymentRequired;
   verification: X402VerificationResult;
   expected: X402ExpectedPayment;
+  permission: SessionPermission;
+  tokenDecimals: number;
+  currency: string;
+  spentAmountAtomic: bigint;
+  approvalAmount?: bigint;
 }): Promise<X402SettlementResult> {
   if (!input.verification.valid || !input.verification.requirement) {
     return { status: "rejected", reason: input.verification.reason ?? "The x402 challenge was not verified." };
@@ -328,16 +335,32 @@ export async function settleX402Payment(input: {
     // permit2 asset transfer method. Permit2 spends need a one-time ERC-20
     // approval from the buyer to the Permit2 contract before settling.
     const requirement = input.verification.requirement;
-    const asset = requirement.asset as Address | undefined;
+    const asset = requirement.asset;
     const permit2Amount = requirement.amount ? BigInt(requirement.amount) : undefined;
-    if (asset && permit2Amount && requirement.extra?.assetTransferMethod === "permit2") {
+    if (!asset || !isAddress(asset) || !permit2Amount || requirement.extra?.assetTransferMethod !== "permit2") {
+      return { status: "rejected", reason: "The x402 payment method is not supported by the permission policy." };
+    }
+    assertPermissionAllows({
+      permission: input.permission,
+      action: "x402-payment",
+      contractAddress: PERMIT2_ADDRESS,
+      tokenAddress: asset,
+      amountAtomic: permit2Amount,
+      tokenDecimals: input.tokenDecimals,
+      currency: input.currency,
+      spentAmountAtomic: input.spentAmountAtomic,
+    });
+    if (permit2Amount) {
       await ensureERC20Allowance({
         walletClient: input.wallet.walletClient,
         publicClient: input.publicClient,
         account: input.wallet.account,
         spender: PERMIT2_ADDRESS,
         amount: permit2Amount,
+        approvalAmount: input.approvalAmount,
         tokenAddress: asset,
+        permission: input.permission,
+        tokenDecimals: input.tokenDecimals,
       });
     }
     const client = createX402Client(input.wallet, input.publicClient);
@@ -347,16 +370,37 @@ export async function settleX402Payment(input: {
     const config = getX402Config();
     if (!config.resourceUrl) return { status: "rejected", reason: config.reason };
     const resourceUrl = resourceForJob(config.resourceUrl, input.expected);
+    const bindingSignature = await input.wallet.walletClient.signMessage({
+      account: input.wallet.account,
+      message: x402PaymentBindingMessage({
+        jobId: input.expected.jobId,
+        agentId: input.expected.agentId,
+        resourceUrl,
+        amount: requirement.amount,
+        asset: requirement.asset,
+        recipient: requirement.payTo,
+        network: requirement.network,
+      }),
+    });
     const response = await fetch(resourceUrl, {
       headers: {
         ...headers,
+        "X-PLOW-X402-BINDING": bindingSignature,
         accept: "application/json",
         "x-agent-job-id": input.expected.jobId,
         "x-agent-id": input.expected.agentId,
       },
     });
     if (!response.ok) {
-      return { status: "rejected", paymentPayload: payload, reason: `The x402 payment was rejected with HTTP ${response.status}.` };
+      let reason = `The x402 payment was rejected with HTTP ${response.status}.`;
+      try {
+        const body = await response.clone().json() as unknown;
+        const message = asRecord(body)?.error;
+        if (typeof message === "string" && message.trim()) reason = message;
+      } catch {
+        // Keep the HTTP status when the resource does not return JSON.
+      }
+      return { status: "rejected", paymentPayload: payload, reason };
     }
     const responseId = response.headers.get("PAYMENT-RESPONSE") ?? response.headers.get("X-PAYMENT-RESPONSE");
     if (!responseId) {
@@ -364,12 +408,14 @@ export async function settleX402Payment(input: {
     }
     let receiptId = responseId;
     let transactionHash: string | undefined;
+    let serverRecorded = false;
     try {
       const decoded = decodePaymentResponseHeader(responseId) as Record<string, unknown>;
       const candidate = decoded.transaction ?? decoded.txHash ?? decoded.tx_hash ?? decoded.transactionHash;
       if (typeof candidate === "string" && /^0x[a-fA-F0-9]{64}$/.test(candidate)) transactionHash = candidate;
       const decodedReceipt = decoded.id ?? decoded.receiptId;
       if (typeof decodedReceipt === "string") receiptId = decodedReceipt;
+      serverRecorded = decoded.paymentRecorded === true;
     } catch {
       return { status: "rejected", paymentPayload: payload, reason: "The x402 payment receipt was malformed." };
     }
@@ -384,7 +430,7 @@ export async function settleX402Payment(input: {
     } catch {
       return { status: "rejected", paymentPayload: payload, reason: "The x402 transaction hash could not be confirmed on the selected BSC network." };
     }
-    return { status: "paid", paymentPayload: payload, receiptId, transactionHash };
+    return { status: "paid", paymentPayload: payload, receiptId, transactionHash, serverRecorded };
   } catch (error) {
     return { status: "rejected", reason: error instanceof Error ? error.message : "The x402 payment failed." };
   }

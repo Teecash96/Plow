@@ -15,7 +15,7 @@ import { AltanaPermissionPanel } from "@/components/partners/altana-permission-p
 import { PancakeSwapEvidencePanel } from "@/components/partners/pancakeswap-evidence-panel";
 import { TermiXReportPanel } from "@/components/partners/terminx-report-panel";
 import { getCategoryDefinition } from "@/lib/marketplace/categories";
-import type { Agent } from "@/lib/marketplace/types";
+import { isAgentHireable, type Agent } from "@/lib/marketplace/types";
 
 interface AgentDetailProps {
   agent?: Agent;
@@ -52,6 +52,7 @@ function PlaceholderPanel({ title, description, icon: Icon }: { title: string; d
 export function AgentDetail({ agent, agentId }: AgentDetailProps) {
   const category = agent ? getCategoryDefinition(agent.category) : undefined;
   const metricLabels = category?.metricLabels ?? ["Primary category metric", "Risk context", "Execution evidence"];
+  const isHireable = isAgentHireable(agent);
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -90,7 +91,7 @@ export function AgentDetail({ agent, agentId }: AgentDetailProps) {
               <span className="flex size-10 items-center justify-center rounded-2xl bg-black text-muted"><Pulse size={20} /></span>
               <div>
                 <p className="text-sm font-semibold">{!agent ? "Not connected" : agent.mode === "demo" ? "Demo fixture" : agent.verified ? "Identity found on BSC" : "Awaiting live checks"}</p>
-                <p className="mt-1 text-xs text-muted">Hiring stays unavailable until verified.</p>
+                <p className="mt-1 text-xs text-muted">Hiring stays unavailable until identity, pricing, freshness, and execution checks pass.</p>
               </div>
             </div>
           </div>
@@ -231,11 +232,11 @@ export function AgentDetail({ agent, agentId }: AgentDetailProps) {
             <div className="flex items-center gap-3">
               <Clock size={22} className="text-brand" />
               <div>
-                <p className="text-sm font-semibold">Ready to hire this agent?</p>
-                <p className="mt-1 text-xs text-muted">Hiring is disabled until identity, Mainnet, and freshness checks pass.</p>
+                <p className="text-sm font-semibold">Ready to start a task?</p>
+                <p className="mt-1 text-xs text-muted">Starting a task is disabled until identity, pricing, freshness, and execution checks pass.</p>
               </div>
             </div>
-            <button type="button" disabled className="inline-flex min-h-11 w-full items-center justify-center rounded-full bg-[#5a5230] px-5 py-2 text-base font-semibold text-[#b9ae7b] sm:w-auto">Hire Agent</button>
+            {isHireable ? <Link href={`/hire/${agent?.slug ?? agentId}`} className="inline-flex min-h-11 w-full items-center justify-center rounded-full bg-brand px-5 py-2 text-base font-semibold text-black hover:bg-[#ffd34f] focus:outline-none focus:ring-2 focus:ring-brand sm:w-auto">Start task</Link> : <button type="button" disabled className="inline-flex min-h-11 w-full items-center justify-center rounded-full bg-[#5a5230] px-5 py-2 text-base font-semibold text-[#b9ae7b] sm:w-auto">Preview only</button>}
           </div>
         </aside>
       </main>

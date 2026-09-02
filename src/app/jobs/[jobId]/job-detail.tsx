@@ -1,20 +1,45 @@
 "use client";
 
-import { ArrowLeft, CheckCircle, Clock, Code, FolderOpen, LockKey, Receipt } from "@phosphor-icons/react";
+import { ArrowClockwise, ArrowLeft, CheckCircle, Clock, Code, FolderOpen, LockKey, Play, Receipt, SpinnerGap, WarningCircle } from "@phosphor-icons/react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  claimERC8183Refund,
+  connectBscWallet,
+  disputeERC8183Job,
+  settleERC8183Job,
+  verifyERC8183Deployment,
+} from "@/lib/chain/erc8183-adapter";
 import { EmptyState } from "@/components/marketplace/empty-state";
 import { JobStatusBadge } from "@/components/jobs/job-status-badge";
+import { JobProofTimeline } from "@/components/jobs/job-proof-timeline";
 import { SetupChecklist } from "@/components/hire/setup-checklist";
 import { AltanaPermissionPanel } from "@/components/partners/altana-permission-panel";
+import { PancakeSwapRebalanceAction } from "@/components/partners/pancakeswap-rebalance-action";
 import { getCategoryDefinition } from "@/lib/marketplace/categories";
-import { getLocalJob } from "@/lib/marketplace/job-store";
+import { getHireResumeMode } from "@/lib/marketplace/hire-resume";
+import { evaluateRemoteJob, getRemoteJob, JobPersistenceUnavailableError, reconcileRemoteJob } from "@/lib/marketplace/job-api";
+import { getLocalJob, updateLocalJob } from "@/lib/marketplace/job-store";
 import { getHireSetupStatus } from "@/lib/marketplace/hire-setup";
+import { evaluatorRefreshDelay, type JobEvaluatorResult } from "@/lib/marketplace/evaluator";
 import type { Job } from "@/lib/marketplace/types";
 
 function formatDate(value: string) {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? "Date pending" : date.toLocaleString();
+}
+
+function formatRemaining(value: string, now: number) {
+  const target = Date.parse(value);
+  if (!Number.isFinite(target) || now <= 0) return "an unknown time";
+  const totalSeconds = Math.max(0, Math.ceil((target - now) / 1_000));
+  if (totalSeconds === 0) return "now";
+  const days = Math.floor(totalSeconds / 86_400);
+  const hours = Math.floor((totalSeconds % 86_400) / 3_600);
+  const minutes = Math.floor((totalSeconds % 3_600) / 60);
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${Math.max(1, minutes)}m`;
 }
 
 function SummaryRow({ label, value }: { label: string; value: string }) {
@@ -24,14 +49,149 @@ function SummaryRow({ label, value }: { label: string; value: string }) {
 export function JobDetail({ jobId }: { jobId: string }) {
   const [job, setJob] = useState<Job>();
   const [ready, setReady] = useState(false);
+  const [loadedJobId, setLoadedJobId] = useState<string>();
+  const [storageNotice, setStorageNotice] = useState<string>();
+  const [executionBusy, setExecutionBusy] = useState(false);
+  const [executionError, setExecutionError] = useState<string>();
+  const [lifecycleBusy, setLifecycleBusy] = useState<string>();
+  const [lifecycleError, setLifecycleError] = useState<string>();
+  const [evaluation, setEvaluation] = useState<JobEvaluatorResult>();
+  const [evaluationBusy, setEvaluationBusy] = useState(false);
+  const [evaluationError, setEvaluationError] = useState<string>();
+  const evaluationRequestId = useRef(0);
+
+  const loadEvaluator = useCallback(async (targetJobId: string) => {
+    const requestId = evaluationRequestId.current + 1;
+    evaluationRequestId.current = requestId;
+    setEvaluationBusy(true);
+    setEvaluationError(undefined);
+    try {
+      const response = await evaluateRemoteJob(targetJobId);
+      if (evaluationRequestId.current === requestId) {
+        setEvaluation(response.evaluation);
+        if (response.job) setJob(response.job);
+      }
+      return response.evaluation;
+    } catch (error) {
+      if (evaluationRequestId.current === requestId) {
+        const message = error instanceof Error ? error.message : "The evaluator status could not be checked.";
+        setEvaluationError(message);
+      }
+      throw error;
+    } finally {
+      if (evaluationRequestId.current === requestId) setEvaluationBusy(false);
+    }
+  }, []);
 
   useEffect(() => {
-    const timeoutId = window.setTimeout(() => {
-      setJob(getLocalJob(jobId));
+    let active = true;
+    const load = async () => {
+      evaluationRequestId.current += 1;
+      setEvaluation(undefined);
+      setEvaluationError(undefined);
+      try {
+        const remoteJob = await getRemoteJob(jobId);
+        if (!active) return;
+        setJob(remoteJob ?? getLocalJob(jobId));
+        setStorageNotice(undefined);
+        setLoadedJobId(jobId);
+      } catch (error) {
+        if (!active) return;
+        setJob(getLocalJob(jobId));
+        setStorageNotice(error instanceof JobPersistenceUnavailableError ? "Server persistence is unavailable. This is the local fallback record." : "The saved jobs service is unavailable. This is the local fallback record.");
+        setLoadedJobId(jobId);
+      }
       setReady(true);
-    }, 0);
-    return () => window.clearTimeout(timeoutId);
+    };
+    void load();
+    return () => { active = false; };
   }, [jobId]);
+
+  useEffect(() => {
+    const evaluationJobId = job?.status === "submitted" && job.escrow?.status === "submitted" ? job.id : undefined;
+    if (!evaluationJobId) return;
+    const timer = window.setTimeout(() => {
+      void loadEvaluator(evaluationJobId).catch(() => undefined);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [job?.id, job?.status, job?.escrow?.status, loadEvaluator]);
+
+  useEffect(() => {
+    const evaluationJobId = job?.status === "submitted" && job.escrow?.status === "submitted" ? job.id : undefined;
+    if (!evaluationJobId || !evaluation || evaluation.ready || evaluation.decision !== "pending") return;
+    const delay = evaluatorRefreshDelay(evaluation.settleAt);
+    if (delay === undefined) return;
+    const timer = window.setTimeout(() => {
+      void loadEvaluator(evaluationJobId).catch(() => undefined);
+    }, delay);
+    return () => window.clearTimeout(timer);
+  }, [evaluation, job?.id, job?.status, job?.escrow?.status, loadEvaluator]);
+
+  async function executeJob() {
+    if (!job || executionBusy) return;
+    setExecutionBusy(true);
+    setExecutionError(undefined);
+    try {
+      const response = await fetch(`/api/jobs/${encodeURIComponent(job.id)}/execute`, {
+        method: "POST",
+        cache: "no-store",
+        credentials: "same-origin",
+      });
+      const body = await response.json().catch(() => ({})) as { error?: unknown; job?: unknown };
+      if (body.job && typeof body.job === "object") setJob(body.job as Job);
+      if (!response.ok) {
+        throw new Error(typeof body.error === "string" ? body.error : `Agent execution failed with status ${response.status}.`);
+      }
+      if (!body.job || typeof body.job !== "object") throw new Error("The execution service returned no job record.");
+    } catch (error) {
+      setExecutionError(error instanceof Error ? error.message : "The agent execution failed.");
+    } finally {
+      setExecutionBusy(false);
+    }
+  }
+
+  async function runLifecycleAction(action: "dispute" | "settle" | "refund") {
+    if (!job || lifecycleBusy || !job.onchainJobId || !job.permission) return;
+    setLifecycleBusy(action);
+    setLifecycleError(undefined);
+    try {
+      const settlementEvaluation = action === "settle" ? await loadEvaluator(job.id) : undefined;
+      if (action === "settle" && settlementEvaluation && !settlementEvaluation.ready) {
+        throw new Error(settlementEvaluation.message);
+      }
+      const wallet = await connectBscWallet();
+      await verifyERC8183Deployment(wallet.publicClient);
+      if (action === "dispute" && wallet.account.toLowerCase() !== job.clientAddress.toLowerCase()) {
+        throw new Error("Connect the wallet that created this job before disputing it.");
+      }
+      const input = {
+        walletClient: wallet.walletClient,
+        publicClient: wallet.publicClient,
+        account: wallet.account,
+        jobId: BigInt(job.onchainJobId),
+        permission: job.permission,
+      };
+      const result = action === "dispute"
+        ? await disputeERC8183Job(input)
+        : action === "settle"
+          ? await settleERC8183Job({ ...input, evidence: settlementEvaluation?.evidence })
+          : await claimERC8183Refund(input);
+      const reconciled = await reconcileRemoteJob(job.id, {
+        transactionHash: result.transactionHash,
+        transactionEvent: action === "refund" ? "refund" : action,
+      });
+      updateLocalJob(job.id, {
+        status: reconciled.status,
+        escrow: reconciled.escrow,
+        statusHistory: reconciled.statusHistory,
+      });
+      setJob(reconciled);
+    } catch (error) {
+      setLifecycleError(error instanceof Error ? error.message : "The escrow action failed.");
+    } finally {
+      setLifecycleBusy(undefined);
+    }
+  }
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -43,16 +203,40 @@ export function JobDetail({ jobId }: { jobId: string }) {
       </header>
 
       <main className="mx-auto max-w-7xl px-4 pb-28 pt-10 sm:px-6 sm:pt-12 lg:pt-20">
-        {!ready ? <div className="rounded-3xl border border-surface-border bg-surface px-6 py-16 text-center text-sm text-muted">Loading job</div> : !job ? <EmptyState title="Job not found in this browser" description="This page reads the local job index. An unknown job has no verified network state to show." actionLabel="Back to jobs" actionHref="/jobs" /> : <JobContent job={job} />}
+        {!(ready && loadedJobId === jobId) ? <div className="rounded-3xl border border-surface-border bg-surface px-6 py-16 text-center"><h1 className="text-2xl font-semibold">Loading job</h1><p className="mt-2 text-sm text-muted">Checking the saved job record.</p></div> : !job ? <EmptyState title="Job not found" description="No matching server record or local draft is available for this job ID." actionLabel="Back to jobs" actionHref="/jobs" /> : <JobContent job={job} onJobChange={setJob} onExecute={executeJob} executionBusy={executionBusy} executionError={executionError} onLifecycleAction={runLifecycleAction} lifecycleBusy={lifecycleBusy} lifecycleError={lifecycleError} evaluation={evaluation} evaluationBusy={evaluationBusy} evaluationError={evaluationError} onRefreshEvaluation={() => { if (job) void loadEvaluator(job.id).catch(() => undefined); }} />}
+        {storageNotice ? <p className="mt-4 text-sm leading-6 text-warning">{storageNotice}</p> : null}
       </main>
     </div>
   );
 }
 
-function JobContent({ job }: { job: Job }) {
+function JobContent({ job, onJobChange, onExecute, executionBusy, executionError, onLifecycleAction, lifecycleBusy, lifecycleError, evaluation, evaluationBusy, evaluationError, onRefreshEvaluation }: { job: Job; onJobChange: (job: Job) => void; onExecute: () => void; executionBusy: boolean; executionError?: string; onLifecycleAction: (action: "dispute" | "settle" | "refund") => void; lifecycleBusy?: string; lifecycleError?: string; evaluation?: JobEvaluatorResult; evaluationBusy: boolean; evaluationError?: string; onRefreshEvaluation: () => void }) {
+  const [currentTime, setCurrentTime] = useState(0);
   const category = getCategoryDefinition(job.category);
   const setup = getHireSetupStatus();
   const explorerHost = job.onchainNetwork === "BSC Testnet" ? "https://testnet.bscscan.com" : "https://bscscan.com";
+  const execution = job.execution;
+  useEffect(() => {
+    const refresh = () => setCurrentTime(Date.now());
+    refresh();
+    const interval = window.setInterval(refresh, 30_000);
+    return () => window.clearInterval(interval);
+  }, [job.escrow?.expiresAt]);
+  const canExecute = Boolean(job.onchainJobId)
+    && job.payment?.status === "paid"
+    && (job.status === "active" || job.status === "failed")
+    && execution?.status !== "running"
+    && execution?.status !== "completed";
+  const canReview = job.status === "submitted" && job.escrow?.status === "submitted";
+  const settlementReady = evaluation?.ready === true;
+  const settlementWaiting = canReview && evaluation?.decision === "pending";
+  const canRefund = (job.status === "active" || job.status === "submitted")
+    && Boolean(job.escrow?.expiresAt)
+    && currentTime > 0
+    && Date.parse(job.escrow?.expiresAt ?? "") <= currentTime;
+  const canResume = job.mode !== "simulation"
+    && Boolean(getHireResumeMode(job));
+  const pendingFundingHash = job.escrow?.pendingFundingTransactionHash;
   return (
     <>
       <section className="flex flex-col justify-between gap-8 lg:flex-row lg:items-end">
@@ -62,25 +246,45 @@ function JobContent({ job }: { job: Job }) {
           <p className="mt-4 font-mono text-xs text-muted">{job.id}</p>
           <p className="mt-5 max-w-2xl text-lg leading-7 text-muted text-wrap-pretty">{job.taskSummary}</p>
         </div>
-        <JobStatusBadge status={job.status} />
+        <div className="flex flex-wrap items-center justify-end gap-3">
+          <JobStatusBadge status={job.status} />
+          {canResume ? <Link href={`/hire/${encodeURIComponent(job.agentId)}?resumeJobId=${encodeURIComponent(job.id)}`} className="inline-flex min-h-11 items-center justify-center rounded-full bg-brand px-4 py-2 text-sm font-semibold text-black hover:bg-[#ffd34f]">Continue hire</Link> : null}
+        </div>
       </section>
 
-      <section className="mt-8">
-        <SetupChecklist status={setup} compact />
-      </section>
+      {job.mode === "simulation" ? (
+        <section className="mt-8 rounded-3xl border border-[#9a843c] bg-[#211d0d] p-5" role="note">
+          <p className="font-mono text-xs uppercase tracking-[0.16em] text-[#e8d995]">Simulation only</p>
+          <p className="mt-3 text-sm leading-6 text-[#e8d995]">This job is a local sandbox record. It does not represent a wallet approval, payment token transfer, database write, provider call, or blockchain transaction.</p>
+        </section>
+      ) : (
+        <section className="mt-8">
+          <SetupChecklist status={setup} compact />
+        </section>
+      )}
+
+      {pendingFundingHash ? <section className="mt-8 rounded-3xl border border-[#ad6565] bg-[#281313] p-5" role="alert">
+        <p className="font-mono text-xs uppercase tracking-[0.16em] text-[#f0b4b4]">Funding needs verification</p>
+        <p className="mt-3 text-sm leading-6 text-[#f0b4b4]">A funding transaction was broadcast, but its receipt is not confirmed. Do not approve another funding transaction. Continue hire will verify this transaction first.</p>
+        {job.onchainNetwork ? <a href={`${explorerHost}/tx/${pendingFundingHash}`} target="_blank" rel="noreferrer" className="mt-3 inline-flex break-all font-mono text-xs font-semibold text-brand hover:underline">{pendingFundingHash}</a> : null}
+      </section> : null}
 
       <section className="mt-12 grid gap-4 lg:grid-cols-[1fr_22rem] lg:items-start">
           <div className="rounded-3xl border border-surface-border bg-surface p-6">
             <div className="flex items-center gap-3"><FolderOpen size={22} className="text-brand" /><h2 className="text-2xl font-semibold">Job summary</h2></div>
-          <dl className="mt-8"><SummaryRow label="Agent ID" value={job.agentId} /><SummaryRow label="Category" value={category?.label ?? "Category pending"} /><SummaryRow label="Created" value={formatDate(job.createdAt)} /><SummaryRow label="Budget" value={`${job.price} ${job.currency}`} /><SummaryRow label="Client" value={job.clientAddress} /><SummaryRow label="Job source" value={job.onchainJobId ? "ERC 8183 on chain" : "Local draft"} /></dl>
+          <dl className="mt-8"><SummaryRow label="Agent ID" value={job.agentId} /><SummaryRow label="Category" value={category?.label ?? "Category pending"} /><SummaryRow label="Created" value={formatDate(job.createdAt)} /><SummaryRow label="Budget" value={`${job.price} ${job.currency}`} /><SummaryRow label="Client" value={job.clientAddress} /><SummaryRow label="Job source" value={job.mode === "simulation" ? "Sandbox simulation" : job.onchainJobId ? "ERC 8183 on chain" : "Local draft"} /></dl>
         </div>
         <div className="rounded-3xl border border-surface-border bg-surface p-6">
           <div className="flex items-center gap-3"><Code size={22} className="text-brand" /><h2 className="text-lg font-semibold">On chain state</h2></div>
-          <dl className="mt-5"><SummaryRow label="Network" value={job.onchainNetwork ? `${job.onchainNetwork}, chain ${job.onchainChainId ?? "pending"}` : "Not submitted"} /><SummaryRow label="Job ID" value={job.onchainJobId ?? "Not created"} /><SummaryRow label="Contract" value={job.jobContractAddress ?? "Not configured"} /><SummaryRow label="Terms hash" value={job.termsHash ?? job.terms.termsHash ?? "Not created"} /></dl>
+          <dl className="mt-5"><SummaryRow label="Network" value={job.mode === "simulation" ? `${job.simulation?.network ?? "BSC Mainnet"}, simulated locally` : job.onchainNetwork ? `${job.onchainNetwork}, chain ${job.onchainChainId ?? "pending"}` : "Not submitted"} /><SummaryRow label="Job ID" value={job.onchainJobId ?? (job.mode === "simulation" ? "Not created" : "Not created")} /><SummaryRow label="Contract" value={job.jobContractAddress ?? "Not configured"} /><SummaryRow label="Terms hash" value={job.termsHash ?? job.terms.termsHash ?? "Not created"} /><SummaryRow label="Escrow" value={job.mode === "simulation" ? "Simulation only" : job.escrow?.status ?? "Not reconciled"} /><SummaryRow label="Deliverable" value={job.escrow?.deliverableHash ?? "Not submitted"} /></dl>
           {job.onchainJobId && job.jobContractAddress ? <a href={`${explorerHost}/address/${job.jobContractAddress}`} target="_blank" rel="noreferrer" className="mt-5 inline-flex text-sm font-semibold text-brand hover:underline">View contract on BscScan</a> : <p className="mt-5 text-sm leading-6 text-muted">No network receipt is attached to this record.</p>}
         </div>
         <AltanaPermissionPanel permission={job.permission} jobId={job.id} mode="job" />
       </section>
+
+      {job.category === "rebalancing" && job.mode !== "simulation" ? <PancakeSwapRebalanceAction job={job} onJobChange={onJobChange} /> : null}
+
+      <JobProofTimeline job={job} />
 
       <section className="mt-12 grid gap-4 lg:grid-cols-2">
         <div className="rounded-3xl border border-surface-border bg-surface p-6">
@@ -95,9 +299,28 @@ function JobContent({ job }: { job: Job }) {
       </section>
 
       <section className="mt-12 rounded-3xl border border-dashed border-surface-border bg-surface p-6 sm:p-8">
-        <div className="flex items-center gap-3"><LockKey size={22} className="text-brand" /><h2 className="text-2xl font-semibold">Result</h2></div>
-        <p className="mt-4 text-sm leading-6 text-muted">No agent has executed this job. A future result record will include the output URI, summary, evidence, and completion timestamp.</p>
-        <p className="mt-6 font-mono text-xs uppercase tracking-[0.14em] text-muted">Result pending</p>
+        <div className="flex flex-wrap items-center justify-between gap-4"><div className="flex items-center gap-3"><LockKey size={22} className="text-brand" /><h2 className="text-2xl font-semibold">Result</h2></div>{canExecute ? <button type="button" onClick={onExecute} disabled={executionBusy} aria-busy={executionBusy} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-brand px-4 py-2 text-sm font-semibold text-black transition-colors hover:bg-[#ffd34f] disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-brand">{executionBusy ? <SpinnerGap size={17} className="animate-spin" /> : execution?.status === "failed" ? <ArrowClockwise size={17} /> : <Play size={17} weight="fill" />}{executionBusy ? "Running agent" : execution?.status === "failed" ? "Retry agent" : "Run agent"}</button> : null}</div>
+        {execution?.status === "running" ? <p className="mt-4 text-sm leading-6 text-muted" aria-live="polite">The agent is working on this job. Refresh this page when it returns a result.</p> : execution?.status === "failed" ? <p className="mt-4 text-sm leading-6 text-warning">The agent did not return a result. {execution.error ?? "You can retry the execution."}</p> : job.resultSummary ? <div className="mt-4 rounded-2xl border border-[#5a9876] bg-[#14281f] p-4"><p className="text-sm leading-6 text-positive">{job.resultSummary}</p>{job.resultUri ? <a href={job.resultUri} target="_blank" rel="noreferrer" className="mt-3 inline-flex text-sm font-semibold text-brand hover:underline">Open result evidence</a> : null}</div> : <p className="mt-4 text-sm leading-6 text-muted">The agent can run after the job is active and funded. Its response will appear here.</p>}
+        {executionError ? <div className="mt-4 flex items-start gap-2 rounded-2xl border border-[#ad6565] bg-[#281313] px-4 py-3 text-sm leading-6 text-[#f0b4b4]" role="alert"><WarningCircle size={18} className="mt-1 shrink-0" />{executionError}</div> : null}
+        {execution?.status === "completed" && !job.resultSummary ? <p className="mt-4 text-sm leading-6 text-warning">The agent marked the job complete, but no result summary was stored.</p> : null}
+      </section>
+
+      <section className="mt-12 rounded-3xl border border-surface-border bg-surface p-6 sm:p-8">
+        <div className="flex items-center gap-3"><Receipt size={22} className="text-brand" /><h2 className="text-2xl font-semibold">Escrow actions</h2></div>
+        <p className="mt-4 max-w-2xl text-sm leading-6 text-muted">The provider submits the result. The configured evaluator policy decides settlement. A refund is available after the on chain expiry time.</p>
+        {canReview ? <div className="mt-5 rounded-2xl border border-surface-border bg-black p-4" role="status" aria-live="polite">
+          <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-sm font-semibold">Evaluator status</p><button type="button" onClick={onRefreshEvaluation} disabled={evaluationBusy || Boolean(lifecycleBusy)} className="inline-flex min-h-10 items-center gap-2 rounded-full border border-surface-border px-3 py-1.5 text-xs font-semibold text-muted hover:border-[#6a6a6a] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50">{evaluationBusy ? <SpinnerGap size={15} className="animate-spin" /> : <ArrowClockwise size={15} />}{evaluationBusy ? "Checking policy" : "Refresh evaluator"}</button></div>
+          <p className="mt-3 text-sm leading-6 text-muted">{evaluationBusy ? "Reading the on chain policy. No wallet prompt will open while the verdict is pending." : settlementWaiting && evaluation?.settleAt ? `Settlement unlocks in ${formatRemaining(evaluation.settleAt, currentTime)}. The page will check again automatically at the unlock time.` : evaluation?.message ?? "Settlement will check the on chain policy before asking for wallet approval."}</p>
+          {evaluation?.settleAt ? <p className="mt-2 font-mono text-xs text-muted">Policy unlock time: {formatDate(evaluation.settleAt)}</p> : null}
+          {evaluationError ? <p className="mt-3 text-sm leading-6 text-warning" role="alert">{evaluationError}</p> : null}
+        </div> : null}
+        {canReview ? <div className="mt-5 flex flex-wrap gap-3">
+          <button type="button" onClick={() => onLifecycleAction("dispute")} disabled={Boolean(lifecycleBusy)} className="inline-flex min-h-11 items-center justify-center rounded-full border border-[#ad6565] px-4 py-2 text-sm font-semibold text-[#f0b4b4] hover:bg-[#281313] disabled:cursor-not-allowed disabled:opacity-50">{lifecycleBusy === "dispute" ? <SpinnerGap size={17} className="mr-2 animate-spin" /> : null}Dispute result</button>
+          <button type="button" onClick={() => onLifecycleAction("settle")} disabled={Boolean(lifecycleBusy) || evaluationBusy || !settlementReady} title={!settlementReady ? "Settlement stays locked until the evaluator returns an approved or rejected verdict." : undefined} className="inline-flex min-h-11 items-center justify-center rounded-full bg-brand px-4 py-2 text-sm font-semibold text-black hover:bg-[#ffd34f] disabled:cursor-not-allowed disabled:opacity-50">{lifecycleBusy === "settle" || evaluationBusy ? <SpinnerGap size={17} className="mr-2 animate-spin" /> : null}{lifecycleBusy === "settle" ? "Settling" : evaluationBusy ? "Checking evaluator" : settlementWaiting ? "Waiting for unlock" : "Settle job"}</button>
+        </div> : null}
+        {canRefund ? <button type="button" onClick={() => onLifecycleAction("refund")} disabled={Boolean(lifecycleBusy)} className="mt-5 inline-flex min-h-11 items-center justify-center rounded-full border border-surface-border px-4 py-2 text-sm font-semibold text-muted hover:border-[#6a6a6a] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50">{lifecycleBusy === "refund" ? <SpinnerGap size={17} className="mr-2 animate-spin" /> : null}Claim refund</button> : null}
+        {!canReview && !canRefund && job.escrow?.status === "submitted" ? <p className="mt-5 text-sm leading-6 text-muted">Settlement is waiting for the evaluator policy window. The job can be disputed during that window.</p> : null}
+        {lifecycleError ? <div className="mt-5 flex items-start gap-2 rounded-2xl border border-[#ad6565] bg-[#281313] px-4 py-3 text-sm leading-6 text-[#f0b4b4]" role="alert"><WarningCircle size={18} className="mt-1 shrink-0" />{lifecycleError}</div> : null}
       </section>
 
       <section className="mt-12" aria-labelledby="timeline-heading">

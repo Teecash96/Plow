@@ -3,7 +3,7 @@ import { JobsBrowser } from "./jobs-browser";
 
 export const metadata: Metadata = {
   title: "Jobs | BNB Agent Studio",
-  description: "Review local agent job drafts and future execution status.",
+  description: "Review saved agent jobs, local drafts, and future execution status.",
 };
 
 export default function JobsPage() {

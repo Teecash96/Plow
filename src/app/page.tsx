@@ -50,7 +50,7 @@ const faqItems = [
   {
     question: "Can I limit what an agent can spend?",
     answer:
-      "The hiring flow will let you review an Altana session key with a spend cap, allowlist, expiration, and revoke control.",
+      "The hiring flow lets you review a Plow permission policy with a spend cap, allowlist, expiration, and server enforced revoke control.",
   },
 ];
 
@@ -86,12 +86,15 @@ export default function Home() {
               Trust layer
             </a>
           </div>
-          <a
-            href="#categories"
-            className="inline-flex min-h-11 shrink-0 items-center rounded-full bg-brand px-3 py-2 text-sm font-semibold text-black transition-all duration-700 ease-[cubic-bezier(0.32,0.72,0,1)] hover:-translate-y-0.5 hover:bg-[#ffd34f] active:translate-y-px focus:outline-none focus:ring-2 focus:ring-brand focus:ring-offset-2 focus:ring-offset-black"
-          >
-            Explore agents
-          </a>
+          <div className="flex shrink-0 items-center gap-2">
+            <a href="/provider" className="hidden min-h-11 items-center rounded-full border border-surface-border px-3 py-2 text-sm font-semibold text-foreground transition-colors hover:border-[#6a6a6a] hover:bg-surface focus:outline-none focus:ring-2 focus:ring-brand sm:inline-flex">Provider setup</a>
+            <a
+              href="#categories"
+              className="inline-flex min-h-11 items-center rounded-full bg-brand px-3 py-2 text-sm font-semibold text-black transition-all duration-700 ease-[cubic-bezier(0.32,0.72,0,1)] hover:-translate-y-0.5 hover:bg-[#ffd34f] active:translate-y-px focus:outline-none focus:ring-2 focus:ring-brand focus:ring-offset-2 focus:ring-offset-black"
+            >
+              Explore agents
+            </a>
+          </div>
         </nav>
       </header>
 
@@ -325,6 +328,7 @@ export default function Home() {
         <div className="mx-auto flex max-w-6xl flex-col gap-4 text-sm text-muted sm:flex-row sm:items-center sm:justify-between">
           <p>Agent Studio on BNB Chain · Plow foundation</p>
           <div className="flex items-center gap-5">
+            <a href="/provider" className="transition-colors hover:text-foreground focus:outline-none focus:ring-2 focus:ring-brand">Provider setup</a>
             <a href="#trust" className="transition-colors hover:text-foreground focus:outline-none focus:ring-2 focus:ring-brand">Trust requirements</a>
             <a href="#how-it-works" className="transition-colors hover:text-foreground focus:outline-none focus:ring-2 focus:ring-brand">How it works</a>
           </div>
