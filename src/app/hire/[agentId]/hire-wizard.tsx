@@ -225,6 +225,11 @@ export function HireWizard({ agent, agentId }: HireWizardProps) {
     ? categorySelection
     : supportedCategories[0];
   const category = selectedCategory ? getCategoryDefinition(selectedCategory) : undefined;
+  const taskPlaceholder = selectedCategory === "health-factor-monitoring"
+    ? "Example: monitor my lending position and alert below 1.2. Include account 0x... to monitor another wallet."
+    : selectedCategory === "yield-optimisation"
+      ? "Example: compare the configured yield routes and return current onchain share prices."
+      : "Example: review this BSC liquidity position and return a range adjustment recommendation with the supporting evidence.";
   const currency = agent?.pricing.currency ?? "Configured token";
   const ercConfig = useMemo(() => getERC8183Config(), []);
   const pancakeSwapRebalanceConfig = useMemo(() => getPancakeSwapRebalanceConfig(), []);
@@ -761,8 +766,9 @@ export function HireWizard({ agent, agentId }: HireWizardProps) {
               </div>
 
               <label className="mt-8 block text-sm font-semibold" htmlFor="task">Task description
-                <textarea id="task" value={task} onChange={(event) => setTask(event.target.value)} rows={7} placeholder="Example: review this BSC liquidity position and return a range adjustment recommendation with the supporting evidence." className="mt-3 w-full resize-y rounded-2xl border border-surface-border bg-black px-4 py-3 text-sm leading-6 text-foreground outline-none placeholder:text-muted focus:border-brand focus:ring-2 focus:ring-brand" />
+                <textarea id="task" value={task} onChange={(event) => setTask(event.target.value)} rows={7} placeholder={taskPlaceholder} className="mt-3 w-full resize-y rounded-2xl border border-surface-border bg-black px-4 py-3 text-sm leading-6 text-foreground outline-none placeholder:text-muted focus:border-brand focus:ring-2 focus:ring-brand" />
               </label>
+              {selectedCategory === "health-factor-monitoring" ? <p className="mt-3 text-xs leading-5 text-muted">Include “account 0x...” or “borrower 0x...” to monitor a specific public position. Otherwise the connected wallet is checked.</p> : null}
               {attempted && !task.trim() ? <p className="mt-2 text-sm text-negative">Add a task description before continuing.</p> : null}
 
               {supportedCategories.length > 1 ? <label className="mt-5 block text-sm font-semibold" htmlFor="category">Strategy category
@@ -939,7 +945,8 @@ export function HireWizard({ agent, agentId }: HireWizardProps) {
                   <div className="flex items-center gap-3"><NotePencil size={22} className="text-brand" /><h2 className="text-2xl font-semibold">What should the agent do?</h2></div>
                   <p className="mt-3 text-sm leading-6 text-muted">Describe one clear task. The request becomes part of the on chain job description and the x402 resource context.</p>
                   <label className="mt-8 block text-sm font-semibold" htmlFor="task">Task description</label>
-                  <textarea id="task" value={task} onChange={(event) => setTask(event.target.value)} rows={7} placeholder="Example: review this BSC liquidity position and return a range adjustment recommendation with the supporting evidence." className="mt-3 w-full resize-y rounded-2xl border border-surface-border bg-black px-4 py-3 text-sm leading-6 text-foreground outline-none placeholder:text-muted focus:border-brand focus:ring-2 focus:ring-brand" />
+                  <textarea id="task" value={task} onChange={(event) => setTask(event.target.value)} rows={7} placeholder={taskPlaceholder} className="mt-3 w-full resize-y rounded-2xl border border-surface-border bg-black px-4 py-3 text-sm leading-6 text-foreground outline-none placeholder:text-muted focus:border-brand focus:ring-2 focus:ring-brand" />
+                  {selectedCategory === "health-factor-monitoring" ? <p className="mt-3 text-xs leading-5 text-muted">Include “account 0x...” or “borrower 0x...” to monitor a specific public position. Otherwise the connected wallet is checked.</p> : null}
                   {attempted && !task.trim() ? <p className="mt-2 text-sm text-negative">Add a task description before continuing.</p> : null}
                   <p className="mt-3 text-xs text-muted">The task is not sent until you confirm the wallet transaction sequence.</p>
                 </div>

@@ -15,6 +15,7 @@ test.describe.configure({ mode: "serial" });
 const POOL = "0x1111111111111111111111111111111111111111" as Address;
 const LENDING_POOL = "0x2222222222222222222222222222222222222222" as Address;
 const ACCOUNT = "0x3333333333333333333333333333333333333333" as Address;
+const TARGET_ACCOUNT = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" as Address;
 const VAULT_A = "0x4444444444444444444444444444444444444444" as Address;
 const VAULT_B = "0x5555555555555555555555555555555555555555" as Address;
 
@@ -116,6 +117,7 @@ test.afterEach(() => {
   delete process.env.PLOW_PROVIDER_YIELD_VAULTS;
   delete process.env.PLOW_PROVIDER_YIELD_VAULT_ADDRESSES;
   delete process.env.PLOW_PROVIDER_LENDING_POOL_ADDRESS;
+  delete process.env.PLOW_PROVIDER_HEALTH_ACCOUNT_ADDRESS;
 });
 
 test("runs a live rebalancing provider against BSC pool telemetry", async () => {
@@ -145,7 +147,7 @@ test("runs a live grid provider and returns bounded levels without placing order
   expect(result.resultSummary).toContain("No order was placed");
 });
 
-test("runs a live yield provider and ranks configured ERC 4626 vaults", async () => {
+test("runs a live yield provider and compares configured vaults", async () => {
   process.env.PLOW_PROVIDER_YIELD_VAULTS = JSON.stringify([
     { address: VAULT_A, name: "Stable Route" },
     { address: VAULT_B, name: "Conservative Route" },
@@ -157,7 +159,7 @@ test("runs a live yield provider and ranks configured ERC 4626 vaults", async ()
 
   expect(result.status).toBe("completed");
   expect(result.resultSummary).toContain("Yield optimisation provider");
-  expect(result.resultSummary).toContain("1. Stable Route 1.02000000 USDT per share");
+  expect(result.resultSummary).toContain("1. Stable Route 1.02000000 per share");
   expect(result.resultSummary).toContain("This is not an APY calculation");
   expect(result.resultSummary).toContain("No deposit or withdrawal was attempted");
 });
@@ -174,6 +176,32 @@ test("runs a live health provider and raises a threshold alert", async () => {
   expect(result.resultSummary).toContain("health factor 1.14200000");
   expect(result.resultSummary).toContain("Alert: health factor 1.14200000 is below 1.2");
   expect(result.resultSummary).toContain("No liquidation or repayment was attempted");
+});
+
+test("monitors an explicit health account and explains when it has no debt", async () => {
+  process.env.PLOW_PROVIDER_LENDING_POOL_ADDRESS = LENDING_POOL;
+  const noDebtReader: ProviderTelemetryReader = {
+    ...reader,
+    async readHealthFactorSnapshot(poolAddress, account) {
+      return {
+        ...health,
+        poolAddress,
+        account,
+        totalDebtBase: "0",
+        healthFactor: "not applicable",
+        hasActiveDebt: false,
+      };
+    },
+  };
+  const result = await buildLiveProviderExecutionResult(
+    request("health-factor-monitoring", `Monitor account ${TARGET_ACCOUNT}. Alert below 1.2.`),
+    { reader: noDebtReader },
+  );
+
+  expect(result.status).toBe("completed");
+  expect(result.resultSummary).toContain(`account ${TARGET_ACCOUNT}`);
+  expect(result.resultSummary).toContain("account has no active debt");
+  expect(result.resultSummary).toContain("health factor not applicable");
 });
 
 test("fails closed for an unsupported provider category", async () => {

@@ -30,6 +30,13 @@ const ERC4626_VAULT_ABI = parseAbi([
   "function convertToAssets(uint256 shares) view returns (uint256)",
 ]);
 
+const BEEFY_VAULT_ABI = parseAbi([
+  "function want() view returns (address)",
+  "function balance() view returns (uint256)",
+  "function totalSupply() view returns (uint256)",
+  "function getPricePerFullShare() view returns (uint256)",
+]);
+
 const LENDING_POOL_ABI = parseAbi([
   "function getUserAccountData(address user) view returns (uint256 totalCollateralBase, uint256 totalDebtBase, uint256 availableBorrowsBase, uint256 currentLiquidationThreshold, uint256 ltv, uint256 healthFactor)",
 ]);
@@ -63,6 +70,7 @@ export interface ProviderYieldVaultSnapshot {
   totalAssets: string;
   totalSupply: string;
   assetsPerShare: string;
+  source?: "ERC-4626" | "Beefy";
 }
 
 export interface ProviderHealthFactorSnapshot {
@@ -72,6 +80,7 @@ export interface ProviderHealthFactorSnapshot {
   totalDebtBase: string;
   currentLiquidationThreshold: string;
   healthFactor: string;
+  hasActiveDebt?: boolean;
 }
 
 export interface ProviderTelemetryReader {
@@ -257,44 +266,71 @@ function createDefaultTelemetryReader(): ProviderTelemetryReader {
       };
     },
     async readYieldVaultSnapshot(address, name) {
-      const [asset, totalAssets, totalSupply, vaultDecimals] = await Promise.all([
-        client.readContract({ address, abi: ERC4626_VAULT_ABI, functionName: "asset" }),
-        client.readContract({ address, abi: ERC4626_VAULT_ABI, functionName: "totalAssets" }),
-        client.readContract({ address, abi: ERC4626_VAULT_ABI, functionName: "totalSupply" }),
-        client.readContract({ address, abi: ERC4626_VAULT_ABI, functionName: "decimals" }),
-      ]);
-      const assetAddress = asset as Address;
-      const [assetSymbol, assetDecimals] = await Promise.all([
-        client.readContract({ address: assetAddress, abi: ERC20_METADATA_ABI, functionName: "symbol" }),
-        client.readContract({ address: assetAddress, abi: ERC20_METADATA_ABI, functionName: "decimals" }),
-      ]);
-      const shareUnit = BigInt(10) ** BigInt(Math.min(Math.max(Number(vaultDecimals), 0), 36));
-      const assetsPerShare = totalSupply === BigInt(0)
-        ? "0"
-        : formatUnits(
-            (await client.readContract({ address, abi: ERC4626_VAULT_ABI, functionName: "convertToAssets", args: [shareUnit] })) as bigint,
-            Number(assetDecimals),
-          );
-      return {
-        address,
-        name,
-        asset: assetAddress,
-        assetSymbol: String(assetSymbol).slice(0, 24),
-        totalAssets: formatUnits(totalAssets as bigint, Number(assetDecimals)),
-        totalSupply: String(totalSupply),
-        assetsPerShare,
-      };
+      try {
+        const [asset, totalAssets, totalSupply, vaultDecimals] = await Promise.all([
+          client.readContract({ address, abi: ERC4626_VAULT_ABI, functionName: "asset" }),
+          client.readContract({ address, abi: ERC4626_VAULT_ABI, functionName: "totalAssets" }),
+          client.readContract({ address, abi: ERC4626_VAULT_ABI, functionName: "totalSupply" }),
+          client.readContract({ address, abi: ERC4626_VAULT_ABI, functionName: "decimals" }),
+        ]);
+        const assetAddress = asset as Address;
+        const [assetSymbol, assetDecimals] = await Promise.all([
+          client.readContract({ address: assetAddress, abi: ERC20_METADATA_ABI, functionName: "symbol" }),
+          client.readContract({ address: assetAddress, abi: ERC20_METADATA_ABI, functionName: "decimals" }),
+        ]);
+        const shareUnit = BigInt(10) ** BigInt(Math.min(Math.max(Number(vaultDecimals), 0), 36));
+        const assetsPerShare = totalSupply === BigInt(0)
+          ? "0"
+          : formatUnits(
+              (await client.readContract({ address, abi: ERC4626_VAULT_ABI, functionName: "convertToAssets", args: [shareUnit] })) as bigint,
+              Number(assetDecimals),
+            );
+        return {
+          address,
+          name,
+          asset: assetAddress,
+          assetSymbol: String(assetSymbol).slice(0, 24),
+          totalAssets: formatUnits(totalAssets as bigint, Number(assetDecimals)),
+          totalSupply: String(totalSupply),
+          assetsPerShare,
+          source: "ERC-4626" as const,
+        };
+      } catch {
+        const [want, balance, totalSupply, pricePerFullShare] = await Promise.all([
+          client.readContract({ address, abi: BEEFY_VAULT_ABI, functionName: "want" }),
+          client.readContract({ address, abi: BEEFY_VAULT_ABI, functionName: "balance" }),
+          client.readContract({ address, abi: BEEFY_VAULT_ABI, functionName: "totalSupply" }),
+          client.readContract({ address, abi: BEEFY_VAULT_ABI, functionName: "getPricePerFullShare" }),
+        ]);
+        const assetAddress = want as Address;
+        const [assetSymbol, assetDecimals] = await Promise.all([
+          client.readContract({ address: assetAddress, abi: ERC20_METADATA_ABI, functionName: "symbol" }),
+          client.readContract({ address: assetAddress, abi: ERC20_METADATA_ABI, functionName: "decimals" }),
+        ]);
+        return {
+          address,
+          name,
+          asset: assetAddress,
+          assetSymbol: String(assetSymbol).slice(0, 24),
+          totalAssets: formatUnits(balance as bigint, Number(assetDecimals)),
+          totalSupply: String(totalSupply),
+          assetsPerShare: formatUnits(pricePerFullShare as bigint, 18),
+          source: "Beefy" as const,
+        };
+      }
     },
     async readHealthFactorSnapshot(poolAddress, account) {
       const data = await client.readContract({ address: poolAddress, abi: LENDING_POOL_ABI, functionName: "getUserAccountData", args: [account] });
       const values = data as readonly [bigint, bigint, bigint, bigint, bigint, bigint];
+      const hasActiveDebt = values[1] > BigInt(0);
       return {
         poolAddress,
         account,
         totalCollateralBase: String(values[0]),
         totalDebtBase: String(values[1]),
         currentLiquidationThreshold: String(values[3]),
-        healthFactor: formatUnits(values[5], 18),
+        healthFactor: hasActiveDebt ? formatUnits(values[5], 18) : "not applicable",
+        hasActiveDebt,
       };
     },
   };
@@ -391,9 +427,20 @@ async function buildYieldSummary(request: ProviderExecutionRequest, reader: Prov
       throw new ProviderStrategyError(`Configured yield vault ${vault.address} could not be read. ${shortError(error)}`);
     }
   }
-  const ranked = [...snapshots].sort((left, right) => Number(right.assetsPerShare) - Number(left.assetsPerShare));
-  const routes = ranked.map((vault, index) => `${index + 1}. ${vault.name} ${vault.assetsPerShare} ${vault.assetSymbol} per share, assets ${vault.totalAssets} ${vault.assetSymbol}`).join("; ");
-  return `Yield optimisation provider completed a read only BSC analysis at block ${chain.blockNumber} (${chain.blockTimestamp}). Ranked configured ERC 4626 vaults by current assets per share: ${routes}. This is not an APY calculation and does not predict returns. No deposit or withdrawal was attempted.`;
+  const grouped = new Map<string, { assetSymbol: string; snapshots: ProviderYieldVaultSnapshot[] }>();
+  for (const snapshot of snapshots) {
+    const key = snapshot.asset.toLowerCase();
+    const group = grouped.get(key) ?? { assetSymbol: snapshot.assetSymbol, snapshots: [] };
+    group.snapshots.push(snapshot);
+    grouped.set(key, group);
+  }
+  const routes = [...grouped.values()].map((group) => {
+    const ranked = [...group.snapshots].sort((left, right) => Number(right.assetsPerShare) - Number(left.assetsPerShare));
+    return `${group.assetSymbol}: ${ranked.map((vault, index) => `${index + 1}. ${vault.name} ${vault.assetsPerShare} per share, assets ${vault.totalAssets}`).join(", ")}`;
+  }).join("; ");
+  const sources = [...new Set(snapshots.map((snapshot) => snapshot.source).filter(Boolean))];
+  const sourceText = sources.length > 0 ? ` Read using ${sources.join(" and ")} contract methods.` : "";
+  return `Yield optimisation provider completed a read only BSC analysis at block ${chain.blockNumber} (${chain.blockTimestamp}). Compared configured routes by current assets per share within each underlying asset: ${routes}.${sourceText} This is not an APY calculation and does not predict returns. Routes with different underlying assets are not directly comparable. No deposit or withdrawal was attempted.`;
 }
 
 async function buildHealthSummary(request: ProviderExecutionRequest, reader: ProviderTelemetryReader, chain: BscChainSnapshot) {
@@ -405,18 +452,26 @@ async function buildHealthSummary(request: ProviderExecutionRequest, reader: Pro
   if (!poolAddress) {
     return `Health factor provider completed a read only BSC analysis at block ${chain.blockNumber} (${chain.blockTimestamp}). No lending pool is configured, so no health factor was asserted. Configure PLOW_PROVIDER_LENDING_POOL_ADDRESS for account data. No liquidation or repayment was attempted.`;
   }
-  if (!isAddress(request.job.clientAddress)) {
+  const account = configuredAddress(
+    "PLOW_PROVIDER_HEALTH_ACCOUNT_ADDRESS",
+    request.job.taskSummary,
+    ["account", "wallet", "borrower", "position"],
+  ) ?? request.job.clientAddress;
+  if (!isAddress(account)) {
     throw new ProviderStrategyError("The job client address is not valid for a health factor read.", 409);
   }
   let snapshot: ProviderHealthFactorSnapshot;
   try {
-    snapshot = await reader.readHealthFactorSnapshot(poolAddress, request.job.clientAddress as Address);
+    snapshot = await reader.readHealthFactorSnapshot(poolAddress, account as Address);
   } catch (error) {
     throw new ProviderStrategyError(`The configured lending pool could not return account data. ${shortError(error)}`);
   }
   const threshold = numberAfterKeyword(request.job.taskSummary, ["alert below", "threshold"], 1.2, 10);
+  const hasActiveDebt = snapshot.hasActiveDebt ?? snapshot.totalDebtBase !== "0";
   const healthFactor = Number(snapshot.healthFactor);
-  const alert = Number.isFinite(healthFactor) && healthFactor < threshold
+  const alert = !hasActiveDebt
+    ? "No alert: account has no active debt, so a health factor is not applicable."
+    : Number.isFinite(healthFactor) && healthFactor < threshold
     ? `Alert: health factor ${snapshot.healthFactor} is below ${threshold}.`
     : `No alert: health factor ${snapshot.healthFactor} is at or above ${threshold}.`;
   return `Health factor monitoring provider completed a read only BSC analysis at block ${chain.blockNumber} (${chain.blockTimestamp}). Lending pool ${snapshot.poolAddress}; account ${snapshot.account}; collateral base ${snapshot.totalCollateralBase}; debt base ${snapshot.totalDebtBase}; liquidation threshold ${snapshot.currentLiquidationThreshold}; health factor ${snapshot.healthFactor}. ${alert} No liquidation or repayment was attempted.`;
