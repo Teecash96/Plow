@@ -4,7 +4,9 @@ interface MarketplaceAgentReference {
 }
 
 export function extractERC8004AgentId(value: string) {
-  const match = /^(?:erc8004|erc8004-bsc)-(\d+)$/i.exec(value.trim());
+  const normalized = value.trim();
+  if (/^\d+$/.test(normalized)) return normalized;
+  const match = /^(?:erc8004|erc8004-bsc)-(\d+)$/i.exec(normalized);
   return match?.[1];
 }
 
