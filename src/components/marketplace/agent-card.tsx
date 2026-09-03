@@ -7,6 +7,7 @@ import {
   Fingerprint,
   Heartbeat,
   ShieldCheck,
+  Star,
 } from "@phosphor-icons/react";
 import { getCategoryDefinition } from "@/lib/marketplace/categories";
 import { isAgentHireable, type Agent, type AgentCategory } from "@/lib/marketplace/types";
@@ -19,6 +20,17 @@ interface AgentCardProps {
 
 function displayValue(value?: string | number) {
   return value === undefined || value === "" ? "Not enough data" : String(value);
+}
+
+function ratingValue(agent: Agent) {
+  return agent.reputation.rating !== undefined && agent.reputation.reviewCount > 0
+    ? `${agent.reputation.rating.toFixed(1)} / 5`
+    : "Unrated";
+}
+
+function ratingDetail(agent: Agent) {
+  if (agent.reputation.reviewCount === 0) return "No reviews yet";
+  return `${agent.reputation.reviewCount.toLocaleString()} review${agent.reputation.reviewCount === 1 ? "" : "s"}${agent.reputation.positivePercent !== undefined ? ` · ${agent.reputation.positivePercent}% positive` : ""}`;
 }
 
 export function AgentCard({ agent, selected = false, onToggleCompare }: AgentCardProps) {
@@ -40,7 +52,8 @@ export function AgentCard({ agent, selected = false, onToggleCompare }: AgentCar
             <span>{category?.label ?? "Uncategorised"}</span>
           </div>
           <h2 className="mt-4 break-words text-2xl font-semibold tracking-tight text-wrap-balance">{agent.name}</h2>
-          <p className="mt-1 break-all font-mono text-xs text-muted">{agent.id}</p>
+          <p className="mt-1 break-all font-mono text-xs text-muted">Marketplace ID · {agent.id}</p>
+          <p className="mt-1 break-all font-mono text-xs text-muted">ERC 8004 ID · {agent.identity.agentId}</p>
           <div className="mt-3 flex flex-wrap gap-2">
             {agent.mode === "demo" ? <span className="inline-flex rounded-full border border-[#9a843c] bg-[#211d0d] px-2.5 py-1 text-xs font-semibold text-[#e8d995]">Demo fixture</span> : isLiveVerified ? <span className="inline-flex rounded-full border border-[#5a9876] bg-[#10261c] px-2.5 py-1 text-xs font-semibold text-positive">Live on BSC</span> : <span className="inline-flex rounded-full border border-[#9a843c] bg-[#211d0d] px-2.5 py-1 text-xs font-semibold text-warning">Registry candidate</span>}
             {agent.listingMode === "independent" ? <span className="inline-flex rounded-full border border-brand/50 bg-brand/10 px-2.5 py-1 text-xs font-semibold text-brand">Independent listing</span> : agent.supportedCategories && agent.supportedCategories.length > 1 ? <span className="inline-flex rounded-full border border-surface-border px-2.5 py-1 text-xs font-semibold text-muted">Shared multi strategy</span> : null}
@@ -62,11 +75,29 @@ export function AgentCard({ agent, selected = false, onToggleCompare }: AgentCar
 
       <p className="mt-5 min-h-12 text-sm leading-6 text-muted text-wrap-pretty">{agent.tagline || "Agent description will appear after verification."}</p>
 
+      <dl className="mt-6 grid grid-cols-3 border-y border-surface-border text-xs">
+        <div className="min-w-0 py-4 pr-3">
+          <dt className="flex items-center gap-1.5 text-muted"><Star size={14} className="text-brand" /> Rating</dt>
+          <dd className="mt-2 break-words text-sm font-semibold">{ratingValue(agent)}</dd>
+          <dd className="mt-1 text-[11px] leading-4 text-muted">{ratingDetail(agent)}</dd>
+        </div>
+        <div className="min-w-0 border-l border-surface-border px-3 py-4">
+          <dt className="text-muted">Verified jobs</dt>
+          <dd className="mt-2 text-sm font-semibold">{agent.reputation.completedJobs.toLocaleString()}</dd>
+          <dd className="mt-1 text-[11px] leading-4 text-muted">Paid and completed</dd>
+        </div>
+        <div className="min-w-0 border-l border-surface-border pl-3 py-4">
+          <dt className="text-muted">Latest job</dt>
+          <dd className="mt-2 break-all font-mono text-xs font-semibold">{agent.reputation.latestJobId ?? "None yet"}</dd>
+          <dd className="mt-1 text-[11px] leading-4 text-muted">Generated per hire</dd>
+        </div>
+      </dl>
+
       <div className="mt-6 grid grid-cols-2 gap-3">
         <div className="rounded-2xl border border-surface-border bg-black p-3">
           <div className="flex items-center gap-2 text-xs text-muted">
             <Fingerprint size={15} className="text-brand" />
-            Identity
+            ERC 8004 ID
           </div>
           <p className="mt-3 break-all text-sm font-semibold">{agent.identity.agentId || "Not available"}</p>
         </div>

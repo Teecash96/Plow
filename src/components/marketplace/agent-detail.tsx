@@ -26,6 +26,25 @@ function valueOrPending(value?: string | number) {
   return value === undefined || value === "" ? "Not enough data" : String(value);
 }
 
+function ratingValue(agent?: Agent) {
+  return agent?.reputation.rating !== undefined && agent.reputation.reviewCount > 0
+    ? `${agent.reputation.rating.toFixed(1)} / 5`
+    : "Unrated";
+}
+
+function ratingDetail(agent?: Agent) {
+  if (!agent?.reputation.reviewCount) return "No verified reviews yet";
+  return `${agent.reputation.reviewCount.toLocaleString()} verified review${agent.reputation.reviewCount === 1 ? "" : "s"}${agent.reputation.positivePercent !== undefined ? ` · ${agent.reputation.positivePercent}% positive` : ""}`;
+}
+
+function verifiedJobsValue(agent?: Agent) {
+  return agent ? agent.reputation.completedJobs.toLocaleString() : "Not enough data";
+}
+
+function latestJobValue(agent?: Agent) {
+  return agent?.reputation.latestJobId ?? "None yet";
+}
+
 function DetailMetric({ label, value, detail }: { label: string; value: string; detail: string }) {
   return (
     <div className="rounded-2xl border border-surface-border bg-black p-4">
@@ -84,6 +103,7 @@ export function AgentDetail({ agent, agentId }: AgentDetailProps) {
             <p className="mt-8 font-mono text-xs uppercase tracking-[0.16em] text-brand">Agent detail</p>
             <h1 className="mt-4 break-words text-4xl font-semibold leading-none tracking-tight text-wrap-balance sm:text-6xl">{agent?.name ?? `Agent ${agentId}`}</h1>
             <p className="mt-5 max-w-2xl text-lg leading-7 text-muted text-wrap-pretty">{agent?.description ?? "This agent profile is ready for an identity, deployment record, category metrics, and evidence sources."}</p>
+            {agent ? <p className="mt-5 break-all font-mono text-xs text-muted">Marketplace ID · {agent.id}</p> : null}
           </div>
           <div className="rounded-3xl border border-surface-border bg-surface p-5">
             <p className="text-xs text-muted">Profile readiness</p>
@@ -99,10 +119,15 @@ export function AgentDetail({ agent, agentId }: AgentDetailProps) {
 
         <section className="mt-10 grid gap-4 md:grid-cols-2 xl:grid-cols-4" aria-label="Agent status">
           <DetailMetric label="Agent ID" value={valueOrPending(agent?.identity.agentId)} detail="ERC 8004 registry record" />
+          <DetailMetric label="Marketplace ID" value={valueOrPending(agent?.id)} detail="Stable Plow listing identifier" />
+          <DetailMetric label="Rating" value={ratingValue(agent)} detail={ratingDetail(agent)} />
+          <DetailMetric label="Verified jobs" value={verifiedJobsValue(agent)} detail="Paid and completed Plow jobs" />
+          <DetailMetric label="Latest job" value={latestJobValue(agent)} detail={agent?.reputation.latestJobId ? "Latest verified Plow job ID" : "Job IDs are generated per hire"} />
           <DetailMetric label="Deployment" value={valueOrPending(agent?.deployment.network)} detail={agent ? `Chain ID ${agent.deployment.chainId}` : "Mainnet record pending"} />
           <DetailMetric label="Last heartbeat" value={valueOrPending(agent?.deployment.heartbeatAt)} detail={agent ? `${agent.deployment.freshnessSeconds} seconds freshness window` : "Freshness record pending"} />
           <DetailMetric label="Price" value={agent ? `${valueOrPending(agent.pricing.amount)} ${agent.pricing.currency}` : "Not enough data"} detail="x402 quote will appear after integration" />
         </section>
+        <p className="mt-4 text-sm leading-6 text-muted">Ratings appear only after verified reviews. Job IDs identify individual hires, not the agent.</p>
 
         <section className="mt-16" aria-labelledby="identity-heading">
           <div className="flex items-end justify-between gap-4">

@@ -9,8 +9,12 @@ test("runs the no funds sandbox and labels every proof step as simulated", async
 
   await page.goto("/hire/demo-rebalancer-001", { waitUntil: "domcontentloaded" });
   await expect(page.getByRole("button", { name: "Run no funds simulation" })).toBeVisible();
-  await page.getByLabel("Task description").first().fill("Return a bounded readiness report without moving funds.");
-  await page.getByRole("button", { name: "Run no funds simulation" }).first().click();
+  const task = page.getByLabel("Task description").first();
+  await task.fill("Return a bounded readiness report without moving funds.");
+  await expect(task).toHaveValue("Return a bounded readiness report without moving funds.");
+  const simulationButton = page.getByRole("button", { name: "Run no funds simulation" }).first();
+  await expect(simulationButton).toBeEnabled();
+  await simulationButton.click();
 
   await expect(page).toHaveURL(/\/jobs\/simulation-/);
   await expect(page.getByText("Simulation only", { exact: true }).first()).toBeVisible();

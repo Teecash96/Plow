@@ -42,6 +42,7 @@ function liveAgent(serviceUri = "https://agent.example/execute"): Agent {
     pricing: { protocol: "x402", amount: "1", currency: "USDC", unit: "per task" },
     performance: [],
     categoryMetrics: [],
+    reputation: { completedJobs: 0, reviewCount: 0, capturedAt: CREATED_AT, source: "unavailable" },
     riskBand: "unknown",
     evidence: [],
     integrations: {},

@@ -9,6 +9,17 @@ test("unavailable agent records cannot be hired from browse", async ({ page }) =
   await expect(demoCard.getByRole("link", { name: "Hire" })).toHaveCount(0);
 });
 
+test("agent cards expose stable identity and honest reputation fields", async ({ page }) => {
+  await page.goto("/agents", { waitUntil: "domcontentloaded" });
+
+  const demoCard = page.locator("article").filter({ hasText: "Demo fixture" }).first();
+  await expect(demoCard.getByText(/Marketplace ID · demo-/)).toBeVisible();
+  await expect(demoCard.getByText(/ERC 8004 ID · demo-erc8004-/)).toBeVisible();
+  await expect(demoCard.getByText("Unrated")).toBeVisible();
+  await expect(demoCard.getByText("Verified jobs")).toBeVisible();
+  await expect(demoCard.getByText("Latest job")).toBeVisible();
+});
+
 test("unavailable agent readiness is shown as a required hire check", async ({ page }) => {
   await page.goto("/hire/demo-rebalancer-001", { waitUntil: "domcontentloaded" });
 

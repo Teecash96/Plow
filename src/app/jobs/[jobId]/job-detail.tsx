@@ -1,8 +1,8 @@
 "use client";
 
-import { ArrowClockwise, ArrowLeft, CheckCircle, Clock, Code, FolderOpen, LockKey, Play, Receipt, SpinnerGap, WarningCircle } from "@phosphor-icons/react";
+import { ArrowClockwise, ArrowLeft, CheckCircle, Clock, Code, FolderOpen, LockKey, Play, Receipt, SpinnerGap, Star, WarningCircle } from "@phosphor-icons/react";
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import {
   claimERC8183Refund,
   connectBscWallet,
@@ -18,7 +18,7 @@ import { AltanaPermissionPanel } from "@/components/partners/altana-permission-p
 import { PancakeSwapRebalanceAction } from "@/components/partners/pancakeswap-rebalance-action";
 import { getCategoryDefinition } from "@/lib/marketplace/categories";
 import { getHireResumeMode } from "@/lib/marketplace/hire-resume";
-import { evaluateRemoteJob, getRemoteJob, JobPersistenceUnavailableError, recoverRemoteFunding, reconcileRemoteJob } from "@/lib/marketplace/job-api";
+import { evaluateRemoteJob, getRemoteJob, JobPersistenceUnavailableError, recoverRemoteFunding, reconcileRemoteJob, submitRemoteJobReview } from "@/lib/marketplace/job-api";
 import { getLocalJob, updateLocalJob } from "@/lib/marketplace/job-store";
 import { getHireSetupStatus } from "@/lib/marketplace/hire-setup";
 import { evaluatorRefreshDelay, type JobEvaluatorResult } from "@/lib/marketplace/evaluator";
@@ -60,6 +60,8 @@ export function JobDetail({ jobId }: { jobId: string }) {
   const [evaluation, setEvaluation] = useState<JobEvaluatorResult>();
   const [evaluationBusy, setEvaluationBusy] = useState(false);
   const [evaluationError, setEvaluationError] = useState<string>();
+  const [reviewBusy, setReviewBusy] = useState(false);
+  const [reviewError, setReviewError] = useState<string>();
   const evaluationRequestId = useRef(0);
 
   const loadEvaluator = useCallback(async (targetJobId: string) => {
@@ -168,6 +170,21 @@ export function JobDetail({ jobId }: { jobId: string }) {
     }
   }
 
+  async function submitReview(score: number, comment: string) {
+    if (!job || reviewBusy) return;
+    setReviewBusy(true);
+    setReviewError(undefined);
+    try {
+      const reviewedJob = await submitRemoteJobReview(job.id, score, comment);
+      updateLocalJob(job.id, reviewedJob);
+      setJob(reviewedJob);
+    } catch (error) {
+      setReviewError(error instanceof Error ? error.message : "The review could not be saved.");
+    } finally {
+      setReviewBusy(false);
+    }
+  }
+
   async function runLifecycleAction(action: "dispute" | "settle" | "refund") {
     if (!job || lifecycleBusy || !job.onchainJobId || !job.permission) return;
     setLifecycleBusy(action);
@@ -221,15 +238,17 @@ export function JobDetail({ jobId }: { jobId: string }) {
       </header>
 
       <main className="mx-auto max-w-7xl px-4 pb-28 pt-10 sm:px-6 sm:pt-12 lg:pt-20">
-        {!(ready && loadedJobId === jobId) ? <div className="rounded-3xl border border-surface-border bg-surface px-6 py-16 text-center"><h1 className="text-2xl font-semibold">Loading job</h1><p className="mt-2 text-sm text-muted">Checking the saved job record.</p></div> : !job ? <EmptyState title="Job not found" description="No matching server record or local draft is available for this job ID." actionLabel="Back to jobs" actionHref="/jobs" /> : <JobContent job={job} onJobChange={setJob} onExecute={executeJob} executionBusy={executionBusy} executionError={executionError} onRecoverFunding={recoverFunding} fundingRecoveryBusy={fundingRecoveryBusy} fundingRecoveryError={fundingRecoveryError} onLifecycleAction={runLifecycleAction} lifecycleBusy={lifecycleBusy} lifecycleError={lifecycleError} evaluation={evaluation} evaluationBusy={evaluationBusy} evaluationError={evaluationError} onRefreshEvaluation={() => { if (job) void loadEvaluator(job.id).catch(() => undefined); }} />}
+        {!(ready && loadedJobId === jobId) ? <div className="rounded-3xl border border-surface-border bg-surface px-6 py-16 text-center"><h1 className="text-2xl font-semibold">Loading job</h1><p className="mt-2 text-sm text-muted">Checking the saved job record.</p></div> : !job ? <EmptyState title="Job not found" description="No matching server record or local draft is available for this job ID." actionLabel="Back to jobs" actionHref="/jobs" /> : <JobContent job={job} onJobChange={setJob} onExecute={executeJob} executionBusy={executionBusy} executionError={executionError} onRecoverFunding={recoverFunding} fundingRecoveryBusy={fundingRecoveryBusy} fundingRecoveryError={fundingRecoveryError} onLifecycleAction={runLifecycleAction} lifecycleBusy={lifecycleBusy} lifecycleError={lifecycleError} evaluation={evaluation} evaluationBusy={evaluationBusy} evaluationError={evaluationError} onRefreshEvaluation={() => { if (job) void loadEvaluator(job.id).catch(() => undefined); }} onReviewSubmit={submitReview} reviewBusy={reviewBusy} reviewError={reviewError} />}
         {storageNotice ? <p className="mt-4 text-sm leading-6 text-warning">{storageNotice}</p> : null}
       </main>
     </div>
   );
 }
 
-function JobContent({ job, onJobChange, onExecute, executionBusy, executionError, onRecoverFunding, fundingRecoveryBusy, fundingRecoveryError, onLifecycleAction, lifecycleBusy, lifecycleError, evaluation, evaluationBusy, evaluationError, onRefreshEvaluation }: { job: Job; onJobChange: (job: Job) => void; onExecute: () => void; executionBusy: boolean; executionError?: string; onRecoverFunding: () => void; fundingRecoveryBusy: boolean; fundingRecoveryError?: string; onLifecycleAction: (action: "dispute" | "settle" | "refund") => void; lifecycleBusy?: string; lifecycleError?: string; evaluation?: JobEvaluatorResult; evaluationBusy: boolean; evaluationError?: string; onRefreshEvaluation: () => void }) {
+function JobContent({ job, onJobChange, onExecute, executionBusy, executionError, onRecoverFunding, fundingRecoveryBusy, fundingRecoveryError, onLifecycleAction, lifecycleBusy, lifecycleError, evaluation, evaluationBusy, evaluationError, onRefreshEvaluation, onReviewSubmit, reviewBusy, reviewError }: { job: Job; onJobChange: (job: Job) => void; onExecute: () => void; executionBusy: boolean; executionError?: string; onRecoverFunding: () => void; fundingRecoveryBusy: boolean; fundingRecoveryError?: string; onLifecycleAction: (action: "dispute" | "settle" | "refund") => void; lifecycleBusy?: string; lifecycleError?: string; evaluation?: JobEvaluatorResult; evaluationBusy: boolean; evaluationError?: string; onRefreshEvaluation: () => void; onReviewSubmit: (score: number, comment: string) => void; reviewBusy: boolean; reviewError?: string }) {
   const [currentTime, setCurrentTime] = useState(0);
+  const [reviewScore, setReviewScore] = useState<number>();
+  const [reviewComment, setReviewComment] = useState("");
   const category = getCategoryDefinition(job.category);
   const setup = getHireSetupStatus();
   const explorerHost = job.onchainNetwork === "BSC Testnet" ? "https://testnet.bscscan.com" : "https://bscscan.com";
@@ -245,6 +264,10 @@ function JobContent({ job, onJobChange, onExecute, executionBusy, executionError
     && (job.status === "active" || job.status === "failed")
     && execution?.status !== "running"
     && execution?.status !== "completed";
+  const canRate = job.mode !== "simulation"
+    && Boolean(job.onchainJobId)
+    && job.payment?.status === "paid"
+    && execution?.status === "completed";
   const canReview = job.status === "submitted" && job.escrow?.status === "submitted";
   const settlementReady = evaluation?.ready === true;
   const settlementWaiting = canReview && evaluation?.decision === "pending";
@@ -326,6 +349,39 @@ function JobContent({ job, onJobChange, onExecute, executionBusy, executionError
         {execution?.status === "running" ? <p className="mt-4 text-sm leading-6 text-muted" aria-live="polite">The agent is working on this job. Refresh this page when it returns a result.</p> : execution?.status === "failed" ? <p className="mt-4 text-sm leading-6 text-warning">The agent did not return a result. {execution.error ?? "You can retry the execution."}</p> : job.resultSummary ? <div className="mt-4 rounded-2xl border border-[#5a9876] bg-[#14281f] p-4"><p className="text-sm leading-6 text-positive">{job.resultSummary}</p>{job.resultUri ? <a href={job.resultUri} target="_blank" rel="noreferrer" className="mt-3 inline-flex text-sm font-semibold text-brand hover:underline">Open result evidence</a> : null}</div> : <p className="mt-4 text-sm leading-6 text-muted">The agent can run after the job is active and funded. Its response will appear here.</p>}
         {executionError ? <div className="mt-4 flex items-start gap-2 rounded-2xl border border-[#ad6565] bg-[#281313] px-4 py-3 text-sm leading-6 text-[#f0b4b4]" role="alert"><WarningCircle size={18} className="mt-1 shrink-0" />{executionError}</div> : null}
         {execution?.status === "completed" && !job.resultSummary ? <p className="mt-4 text-sm leading-6 text-warning">The agent marked the job complete, but no result summary was stored.</p> : null}
+      </section>
+
+      <section className="mt-12 rounded-3xl border border-surface-border bg-surface p-6 sm:p-8" aria-labelledby="rating-heading">
+        <div className="flex items-center gap-3"><Star size={22} className="text-brand" /><h2 id="rating-heading" className="text-2xl font-semibold">Rate this agent</h2></div>
+        {job.review ? (
+          <div className="mt-5 rounded-2xl border border-[#5a9876] bg-[#14281f] p-4">
+            <p className="text-sm font-semibold text-positive">Your rating: {job.review.score} / 5</p>
+            {job.review.comment ? <p className="mt-2 text-sm leading-6 text-positive">{job.review.comment}</p> : null}
+            <p className="mt-3 text-xs text-positive/80">Saved with job {job.id}.</p>
+          </div>
+        ) : canRate ? (
+          <form className="mt-5" onSubmit={(event: FormEvent<HTMLFormElement>) => { event.preventDefault(); if (reviewScore) onReviewSubmit(reviewScore, reviewComment); }}>
+            <fieldset>
+              <legend className="text-sm leading-6 text-muted">How useful was the completed result?</legend>
+              <div className="mt-4 flex flex-wrap gap-2">
+                {[1, 2, 3, 4, 5].map((score) => (
+                  <button key={score} type="button" aria-label={`${score} out of 5 stars`} aria-pressed={reviewScore === score} onClick={() => setReviewScore(score)} className={`inline-flex min-h-11 items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-brand ${reviewScore === score ? "border-brand bg-brand text-black" : "border-surface-border text-muted hover:border-[#6a6a6a] hover:text-foreground"}`}>
+                    <Star size={16} weight={reviewScore === score ? "fill" : "regular"} />{score}
+                  </button>
+                ))}
+              </div>
+            </fieldset>
+            <label className="mt-5 block text-sm font-semibold" htmlFor="agent-review-comment">Comment <span className="font-normal text-muted">optional</span></label>
+            <textarea id="agent-review-comment" value={reviewComment} onChange={(event) => setReviewComment(event.target.value)} maxLength={500} rows={3} className="mt-2 block w-full rounded-2xl border border-surface-border bg-black px-4 py-3 text-sm leading-6 outline-none focus:border-brand focus:ring-2 focus:ring-brand" placeholder="What should another buyer know?" />
+            <div className="mt-4 flex flex-wrap items-center gap-4">
+              <button type="submit" disabled={!reviewScore || reviewBusy} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-brand px-4 py-2 text-sm font-semibold text-black hover:bg-[#ffd34f] disabled:cursor-not-allowed disabled:opacity-50">{reviewBusy ? <SpinnerGap size={17} className="animate-spin" /> : <Star size={17} weight="fill" />}{reviewBusy ? "Saving review" : "Submit rating"}</button>
+              <p className="text-xs text-muted">One review is allowed for each paid completed job.</p>
+            </div>
+            {reviewError ? <p className="mt-4 text-sm leading-6 text-warning" role="alert">{reviewError}</p> : null}
+          </form>
+        ) : (
+          <p className="mt-4 max-w-2xl text-sm leading-6 text-muted">A rating unlocks after this paid job returns a completed result. Simulation jobs and unpaid previews cannot affect agent reputation.</p>
+        )}
       </section>
 
       <section className="mt-12 rounded-3xl border border-surface-border bg-surface p-6 sm:p-8">

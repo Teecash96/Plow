@@ -3,7 +3,7 @@ import postgres from "postgres";
 import { isAddress } from "viem";
 import { assertPermissionAllows } from "./permission-policy";
 import { applyEscrowObservation, type EscrowObservation } from "./job-lifecycle";
-import type { FundMovingAction, Job, JobEscrow, JobExecution, JobStatus, JobStatusChange, JobTerms, PaymentReceipt, SessionPermission } from "./types";
+import type { FundMovingAction, Job, JobEscrow, JobExecution, JobReview, JobStatus, JobStatusChange, JobTerms, PaymentReceipt, SessionPermission } from "./types";
 
 const JOB_STATUSES = new Set<JobStatus>([
   "draft",
@@ -179,6 +179,16 @@ function isJobExecution(value: unknown): value is JobExecution {
     && (value.error === undefined || (isString(value.error) && value.error.length <= 500));
 }
 
+function isJobReview(value: unknown): value is JobReview {
+  return isRecord(value)
+    && Number.isInteger(value.score)
+    && Number(value.score) >= 1
+    && Number(value.score) <= 5
+    && isString(value.submittedAt)
+    && isIsoTimestamp(value.submittedAt)
+    && (value.comment === undefined || (isString(value.comment) && value.comment.length <= 500));
+}
+
 const FUND_MOVING_ACTION_STATUSES = new Set<FundMovingAction["status"]>([
   "reserved",
   "approval-submitted",
@@ -282,8 +292,24 @@ export function isJobRecord(value: unknown): value is Job {
     && (value.permission === undefined || isPermission(value.permission))
     && (value.payment === undefined || isPayment(value.payment))
     && (value.execution === undefined || isJobExecution(value.execution))
+    && (value.review === undefined || isJobReview(value.review))
     && (value.fundMovingAction === undefined || isFundMovingAction(value.fundMovingAction))
     && (value.escrow === undefined || isJobEscrow(value.escrow));
+}
+
+export interface NewAgentReviewInput {
+  score: number;
+  comment?: string;
+}
+
+export function parseAgentReviewInput(value: unknown): NewAgentReviewInput | undefined {
+  if (!isRecord(value) || !Number.isInteger(value.score) || Number(value.score) < 1 || Number(value.score) > 5) return undefined;
+  if (value.comment !== undefined && (!isString(value.comment) || value.comment.trim().length > 500)) return undefined;
+  const comment = isString(value.comment) ? value.comment.trim() : "";
+  return {
+    score: Number(value.score),
+    ...(comment ? { comment } : {}),
+  };
 }
 
 export function parseJobPatch(value: unknown): JobPatch | undefined {
@@ -352,6 +378,29 @@ export interface StoredAgentExecutionEvidence {
   completedAt: string;
   resultSummary: string;
   submissionTransactionHash?: string;
+  completedJobs: number;
+  rating?: number;
+  reviewCount: number;
+  positivePercent?: number;
+}
+
+type VerifiedAgentExecutionJob = Job & {
+  agentIdentityId: string;
+  onchainJobId: string;
+  payment: NonNullable<Job["payment"]> & { status: "paid" };
+  execution: NonNullable<Job["execution"]> & { status: "completed"; completedAt: string };
+  resultSummary: string;
+};
+
+function isVerifiedAgentExecutionJob(job: unknown, agentIdentityId: string): job is VerifiedAgentExecutionJob {
+  return isJobRecord(job)
+    && job.agentIdentityId === agentIdentityId
+    && Boolean(job.onchainJobId)
+    && job.payment?.status === "paid"
+    && job.execution?.status === "completed"
+    && Boolean(job.execution.completedAt)
+    && Boolean(job.resultSummary)
+    && !Number.isNaN(Date.parse(job.execution.completedAt ?? ""));
 }
 
 export async function getLatestVerifiedAgentExecutionEvidence(agentIdentityId: string, marketplaceAgentId: string) {
@@ -359,31 +408,63 @@ export async function getLatestVerifiedAgentExecutionEvidence(agentIdentityId: s
 
   try {
     const sql = getSql();
-    const rows = await sql<{ job: unknown }[]>`
-      SELECT job
-      FROM plow_jobs
-      WHERE agent_id = ${marketplaceAgentId}
-      ORDER BY updated_at DESC
-      LIMIT 25
-    `;
+    const [rows, statsRows] = await Promise.all([
+      sql<{ job: unknown }[]>`
+        SELECT job
+        FROM plow_jobs
+        WHERE agent_id = ${marketplaceAgentId}
+        ORDER BY updated_at DESC
+        LIMIT 25
+      `,
+      sql<{
+        completed_jobs: number | string;
+        review_count: number | string;
+        rating: number | string | null;
+        positive_reviews: number | string;
+      }[]>`
+        WITH eligible AS (
+          SELECT job
+          FROM plow_jobs
+          WHERE agent_id = ${marketplaceAgentId}
+            AND job->>'agentIdentityId' = ${agentIdentityId}
+            AND NULLIF(job->>'onchainJobId', '') IS NOT NULL
+            AND job->'payment'->>'status' = 'paid'
+            AND job->'execution'->>'status' = 'completed'
+            AND NULLIF(job->'execution'->>'completedAt', '') IS NOT NULL
+            AND NULLIF(job->>'resultSummary', '') IS NOT NULL
+        )
+        SELECT
+          COUNT(*)::int AS completed_jobs,
+          COUNT(*) FILTER (WHERE (job->'review'->>'score') ~ '^[1-5]$')::int AS review_count,
+          AVG(CASE
+            WHEN (job->'review'->>'score') ~ '^[1-5]$' THEN (job->'review'->>'score')::numeric
+            ELSE NULL
+          END) AS rating,
+          COUNT(*) FILTER (WHERE CASE
+            WHEN (job->'review'->>'score') ~ '^[1-5]$' THEN (job->'review'->>'score')::int >= 4
+            ELSE false
+          END)::int AS positive_reviews
+        FROM eligible
+      `,
+    ]);
+    const stats = statsRows[0];
+    const completedJobs = Math.max(0, Number(stats?.completed_jobs ?? 0));
+    const reviewCount = Math.max(0, Number(stats?.review_count ?? 0));
+    const positiveReviews = Math.max(0, Number(stats?.positive_reviews ?? 0));
+    const averageRating = stats?.rating === null || stats?.rating === undefined ? undefined : Number(stats.rating);
 
     for (const row of rows) {
       const job = row.job;
-      if (!isJobRecord(job)
-        || job.agentIdentityId !== agentIdentityId
-        || !job.onchainJobId
-        || job.payment?.status !== "paid"
-        || job.execution?.status !== "completed"
-        || !job.execution.completedAt
-        || !job.resultSummary) {
-        continue;
-      }
-      if (Number.isNaN(Date.parse(job.execution.completedAt))) continue;
+      if (!isVerifiedAgentExecutionJob(job, agentIdentityId)) continue;
       return {
         jobId: job.id,
         completedAt: job.execution.completedAt,
         resultSummary: job.resultSummary,
         ...(job.escrow?.submissionTransactionHash ? { submissionTransactionHash: job.escrow.submissionTransactionHash } : {}),
+        completedJobs,
+        ...(averageRating !== undefined && Number.isFinite(averageRating) ? { rating: averageRating } : {}),
+        reviewCount,
+        ...(reviewCount > 0 ? { positivePercent: Math.round((positiveReviews / reviewCount) * 100) } : {}),
       } satisfies StoredAgentExecutionEvidence;
     }
     return undefined;
@@ -564,6 +645,49 @@ export async function updateStoredJob(jobId: string, ownerToken: string, patch: 
     });
 
     return updatedJob;
+  } catch (error) {
+    return rethrowDatabaseError(error);
+  }
+}
+
+export async function submitStoredJobReview(jobId: string, ownerToken: string, input: NewAgentReviewInput) {
+  try {
+    const parsed = parseAgentReviewInput(input);
+    if (!parsed) throw new JobMutationError("A review score from 1 to 5 is required. The comment must be 500 characters or less.");
+
+    const sql = getSql();
+    const ownerTokenHash = hashOwnerToken(ownerToken);
+    return await sql.begin(async (transaction) => {
+      const rows = await transaction<{ job: unknown }[]>`
+        SELECT job
+        FROM plow_jobs
+        WHERE id = ${jobId} AND owner_token_hash = ${ownerTokenHash}
+        FOR UPDATE
+      `;
+      const currentJob = rows[0]?.job;
+      if (!isJobRecord(currentJob)) return undefined;
+      if (currentJob.review) throw new JobMutationError("This job already has a review.");
+      if (currentJob.mode === "simulation") throw new JobMutationError("Simulation jobs cannot be reviewed.");
+      if (!currentJob.onchainJobId || currentJob.payment?.status !== "paid" || currentJob.execution?.status !== "completed") {
+        throw new JobMutationError("A review unlocks after the paid agent execution is complete.");
+      }
+
+      const updatedAt = new Date().toISOString();
+      const nextJob: Job = {
+        ...currentJob,
+        review: { ...parsed, submittedAt: updatedAt },
+        updatedAt,
+      };
+      if (!isJobRecord(nextJob)) throw new JobPersistenceError("The review would create an invalid job record.");
+
+      await transaction`
+        UPDATE plow_jobs
+        SET updated_at = ${nextJob.updatedAt},
+            job = ${transaction.json(serialiseJob(nextJob))}
+        WHERE id = ${jobId} AND owner_token_hash = ${ownerTokenHash}
+      `;
+      return nextJob;
+    });
   } catch (error) {
     return rethrowDatabaseError(error);
   }

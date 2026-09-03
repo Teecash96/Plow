@@ -215,6 +215,16 @@ export interface AgentHiringReadiness {
   service?: AgentServiceReadiness;
 }
 
+export interface AgentReputation {
+  completedJobs: number;
+  rating?: number;
+  reviewCount: number;
+  positivePercent?: number;
+  latestJobId?: string;
+  capturedAt: string;
+  source: "reviews" | "verified-execution" | "demo" | "unavailable";
+}
+
 export interface Agent {
   id: string;
   slug: string;
@@ -233,6 +243,7 @@ export interface Agent {
   pricing: AgentPricing;
   performance: readonly PerformanceWindow[];
   categoryMetrics: readonly MetricValue[];
+  reputation: AgentReputation;
   riskBand?: "low" | "medium" | "high" | "unknown";
   maxDrawdown?: string;
   evidence: readonly Evidence[];
@@ -327,6 +338,12 @@ export interface PaymentReceipt {
   paidAt?: string;
 }
 
+export interface JobReview {
+  score: number;
+  comment?: string;
+  submittedAt: string;
+}
+
 export type JobExecutionStatus = "running" | "completed" | "failed";
 
 export interface JobExecution {
@@ -406,6 +423,7 @@ export interface Job {
   resultUri?: string;
   resultSummary?: string;
   execution?: JobExecution;
+  review?: JobReview;
   fundMovingAction?: FundMovingAction;
   escrow?: JobEscrow;
   simulation?: JobSimulation;
@@ -425,6 +443,7 @@ export const AGENT_REQUIRED_FIELDS = [
   "pricing",
   "performance",
   "categoryMetrics",
+  "reputation",
   "evidence",
   "integrations",
   "hiring",

@@ -4,7 +4,7 @@ import { curatedCategoryForLiveAgent } from "./curated-category-mapping";
 import { AGENTS as DEMO_AND_STATIC_AGENTS } from "./agents";
 import { extractERC8004AgentId, findMarketplaceAgentById } from "./agent-lookup";
 import { probeAgentService, validateAgentServiceUri } from "./agent-execution";
-import { getLatestVerifiedAgentExecutionEvidence } from "./job-database";
+import { getLatestVerifiedAgentExecutionEvidence, type StoredAgentExecutionEvidence } from "./job-database";
 import { getProviderProfileForAgent, getProviderServiceConfig, providerEndpointMatches } from "./provider-service";
 import { getProviderSignerStatus } from "./provider-submission";
 import { BSC_ERC8183_PAYMENT_CURRENCY } from "./payment-currency";
@@ -105,6 +105,7 @@ function mapLiveRecord(
   record: ERC8004DiscoveryResult["records"][number],
   fetchedAt: string,
   verifiedServiceReadiness?: AgentServiceReadiness,
+  verifiedExecutionEvidence?: StoredAgentExecutionEvidence,
 ): Agent {
   const signals = {
     endpoints: record.endpoints ?? [],
@@ -279,6 +280,22 @@ function mapLiveRecord(
       { window: "30 day", sampleSize: 0, capturedAt: fetchedAt, source: "onchain" as const },
     ],
     categoryMetrics: metricSet(category.category, fetchedAt),
+    reputation: verifiedExecutionEvidence
+      ? {
+          completedJobs: verifiedExecutionEvidence.completedJobs,
+          ...(verifiedExecutionEvidence.rating !== undefined ? { rating: verifiedExecutionEvidence.rating } : {}),
+          reviewCount: verifiedExecutionEvidence.reviewCount,
+          ...(verifiedExecutionEvidence.positivePercent !== undefined ? { positivePercent: verifiedExecutionEvidence.positivePercent } : {}),
+          latestJobId: verifiedExecutionEvidence.jobId,
+          capturedAt: verifiedExecutionEvidence.completedAt,
+          source: "verified-execution" as const,
+        }
+      : {
+          completedJobs: 0,
+          reviewCount: 0,
+          capturedAt: fetchedAt,
+          source: "unavailable" as const,
+        },
     riskBand: "unknown",
     evidence,
     integrations: {},
@@ -438,7 +455,7 @@ async function verifyLiveServiceReadiness(
     && record.owner
     && record.owner.toLowerCase() === providerSigner.address.toLowerCase(),
   );
-  return assessAgentServiceReadiness({
+  const readiness = assessAgentServiceReadiness({
     checkedAt,
     endpoint: { url: metadata.executionEndpoint, verified: endpointVerified, detail: endpointDetail },
     x402Supported: metadata.x402Supported,
@@ -448,6 +465,7 @@ async function verifyLiveServiceReadiness(
     bootstrapEligible,
     expectedPaymentCurrency: BSC_ERC8183_PAYMENT_CURRENCY,
   });
+  return { readiness, executionEvidence };
 }
 
 function getDirectMarketplaceAgentById(agentId: string): Promise<Agent | undefined> {
@@ -462,8 +480,8 @@ function getDirectMarketplaceAgentById(agentId: string): Promise<Agent | undefin
       if (!record) return undefined;
       const checkedAt = new Date().toISOString();
       const marketplaceAgentId = `erc8004-bsc-${record.agentId}`;
-      const serviceReadiness = await verifyLiveServiceReadiness(record, marketplaceAgentId, checkedAt);
-      const agent = mapLiveRecord(record, checkedAt, serviceReadiness);
+      const verification = await verifyLiveServiceReadiness(record, marketplaceAgentId, checkedAt);
+      const agent = mapLiveRecord(record, checkedAt, verification.readiness, verification.executionEvidence);
       directAgentCache.set(agentId, { agent, expiresAt: Date.now() + DIRECT_AGENT_CACHE_MS });
       return agent;
     })

@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { createSandboxJob } from "../src/lib/marketplace/sandbox";
 import { getJobProofEvents } from "../src/lib/marketplace/job-proof";
-import { validateNewStoredJob } from "../src/lib/marketplace/job-database";
+import { parseAgentReviewInput, validateNewStoredJob } from "../src/lib/marketplace/job-database";
 import type { Agent } from "../src/lib/marketplace/types";
 
 const agent: Agent = {
@@ -34,6 +34,7 @@ const agent: Agent = {
   pricing: { protocol: "x402", amount: "0.25", currency: "USDC", unit: "per task" },
   performance: [],
   categoryMetrics: [],
+  reputation: { completedJobs: 0, reviewCount: 0, capturedAt: "2026-08-31T00:00:00.000Z", source: "unavailable" },
   riskBand: "unknown",
   evidence: [],
   integrations: {},
@@ -105,6 +106,13 @@ test("does not allow a simulation record into durable storage", () => {
   });
 
   expect(() => validateNewStoredJob(job)).toThrow("local only");
+});
+
+test("validates bounded agent review input", () => {
+  expect(parseAgentReviewInput({ score: 5, comment: "Clear result." })).toEqual({ score: 5, comment: "Clear result." });
+  expect(parseAgentReviewInput({ score: 0 })).toBeUndefined();
+  expect(parseAgentReviewInput({ score: 6 })).toBeUndefined();
+  expect(parseAgentReviewInput({ score: 4, comment: "x".repeat(501) })).toBeUndefined();
 });
 
 test("adds explorer links only for verified live transaction hashes", () => {

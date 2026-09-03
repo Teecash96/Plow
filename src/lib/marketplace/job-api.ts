@@ -91,6 +91,16 @@ export async function updateRemoteJob(jobId: string, patch: RemoteJobPatch) {
   return body.job;
 }
 
+export async function submitRemoteJobReview(jobId: string, score: number, comment?: string) {
+  const body = await request<{ job?: unknown }>(`/api/jobs/${encodeURIComponent(jobId)}/review`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ review: { score, ...(comment?.trim() ? { comment: comment.trim() } : {}) } }),
+  });
+  if (!isJob(body.job)) throw new JobApiError("The jobs service returned an invalid review record.", 502);
+  return body.job;
+}
+
 export async function recordFundingBroadcastRemoteJob(jobId: string, transactionHash: string) {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
