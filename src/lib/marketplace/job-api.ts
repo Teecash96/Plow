@@ -110,6 +110,16 @@ export async function recordFundingBroadcastRemoteJob(jobId: string, transaction
   throw new JobApiError("The jobs service could not record the funding broadcast.", 503);
 }
 
+export async function recoverRemoteFunding(jobId: string, transactionHash: string) {
+  const body = await request<{ job?: unknown }>(`/api/jobs/${encodeURIComponent(jobId)}/funding/recover`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ transactionHash }),
+  });
+  if (!isJob(body.job)) throw new JobApiError("The jobs service returned an invalid funding recovery record.", 502);
+  return body.job;
+}
+
 export async function reconcileRemoteJob(
   jobId: string,
   input?: { onchainJobId?: string; transactionHash?: string; transactionEvent?: EscrowTransactionEvent },

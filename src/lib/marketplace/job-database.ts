@@ -47,6 +47,7 @@ const PATCH_FIELDS = new Set([
 ]);
 
 const EXECUTION_LOCK_MS = 5 * 60 * 1000;
+export const FUNDING_RECOVERY_MIN_AGE_MS = 10 * 60 * 1000;
 
 type SqlClient = ReturnType<typeof postgres>;
 
@@ -615,6 +616,70 @@ export async function recordStoredFundingBroadcast(jobId: string, ownerToken: st
         },
       };
       if (!isJobRecord(nextJob)) throw new JobPersistenceError("The funding broadcast would create an invalid job record.");
+
+      await transaction`
+        UPDATE plow_jobs
+        SET updated_at = ${nextJob.updatedAt},
+            job = ${transaction.json(serialiseJob(nextJob))}
+        WHERE id = ${jobId} AND owner_token_hash = ${ownerTokenHash}
+      `;
+      return nextJob;
+    });
+  } catch (error) {
+    return rethrowDatabaseError(error);
+  }
+}
+
+export function canRecoverFundingBroadcast(pendingFundingAt: string | undefined, now = Date.now()) {
+  const pendingAt = pendingFundingAt ? Date.parse(pendingFundingAt) : Number.NaN;
+  return Number.isFinite(pendingAt) && now - pendingAt >= FUNDING_RECOVERY_MIN_AGE_MS;
+}
+
+export async function recoverStoredFundingBroadcast(jobId: string, ownerToken: string, transactionHash: string) {
+  try {
+    if (!isTransactionHash(transactionHash)) throw new JobMutationError("The funding transaction hash is invalid.");
+
+    const sql = getSql();
+    const ownerTokenHash = hashOwnerToken(ownerToken);
+    return await sql.begin(async (transaction) => {
+      const rows = await transaction<{ job: unknown }[]>`
+        SELECT job
+        FROM plow_jobs
+        WHERE id = ${jobId} AND owner_token_hash = ${ownerTokenHash}
+        FOR UPDATE
+      `;
+      const currentJob = rows[0]?.job;
+      if (!isJobRecord(currentJob)) return undefined;
+
+      const escrow = currentJob.escrow;
+      if (!escrow || !currentJob.onchainJobId) {
+        throw new JobMutationError("The job is not linked to an on chain escrow.");
+      }
+      if (escrow.fundingTransactionHash) {
+        throw new JobMutationError("Escrow funding is already verified. Do not retry it.");
+      }
+      if (!escrow.pendingFundingTransactionHash) {
+        throw new JobMutationError("There is no pending funding broadcast to recover.");
+      }
+      if (escrow.pendingFundingTransactionHash.toLowerCase() !== transactionHash.toLowerCase()) {
+        throw new JobMutationError("The funding hash does not match the pending broadcast.");
+      }
+      if (!canRecoverFundingBroadcast(escrow.pendingFundingAt)) {
+        throw new JobMutationError("The funding broadcast is too recent to recover. Wait ten minutes and verify it again.");
+      }
+      if (currentJob.status !== "pending" || escrow.status !== "open" || currentJob.payment?.status !== "paid") {
+        throw new JobMutationError("Only a paid job with open escrow can recover a funding broadcast.");
+      }
+
+      const nextEscrow = { ...escrow };
+      delete nextEscrow.pendingFundingTransactionHash;
+      delete nextEscrow.pendingFundingAt;
+      const nextJob: Job = {
+        ...currentJob,
+        updatedAt: new Date().toISOString(),
+        escrow: nextEscrow,
+      };
+      if (!isJobRecord(nextJob)) throw new JobPersistenceError("The funding recovery would create an invalid job record.");
 
       await transaction`
         UPDATE plow_jobs

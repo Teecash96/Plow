@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { isJobRecord, JobMutationError, parseJobPatch, validateJobPatch } from "@/lib/marketplace/job-database";
+import { canRecoverFundingBroadcast, FUNDING_RECOVERY_MIN_AGE_MS, isJobRecord, JobMutationError, parseJobPatch, validateJobPatch } from "@/lib/marketplace/job-database";
 import type { Job, SessionPermission } from "@/lib/marketplace/types";
 
 const permission: SessionPermission = {
@@ -80,4 +80,14 @@ test("accepts only a valid pending funding broadcast in a job record", () => {
     ...pendingJob,
     escrow: { ...pendingJob.escrow, pendingFundingTransactionHash: "not-a-transaction" },
   })).toBe(false);
+});
+
+test("only allows stale funding broadcasts to be recovered", () => {
+  const now = Date.parse("2026-08-31T01:20:00.000Z");
+  const justBeforeRecovery = new Date(now - FUNDING_RECOVERY_MIN_AGE_MS + 1).toISOString();
+  const readyForRecovery = new Date(now - FUNDING_RECOVERY_MIN_AGE_MS).toISOString();
+
+  expect(canRecoverFundingBroadcast(justBeforeRecovery, now)).toBe(false);
+  expect(canRecoverFundingBroadcast(readyForRecovery, now)).toBe(true);
+  expect(canRecoverFundingBroadcast(undefined, now)).toBe(false);
 });

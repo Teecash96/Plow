@@ -18,7 +18,7 @@ import { AltanaPermissionPanel } from "@/components/partners/altana-permission-p
 import { PancakeSwapRebalanceAction } from "@/components/partners/pancakeswap-rebalance-action";
 import { getCategoryDefinition } from "@/lib/marketplace/categories";
 import { getHireResumeMode } from "@/lib/marketplace/hire-resume";
-import { evaluateRemoteJob, getRemoteJob, JobPersistenceUnavailableError, reconcileRemoteJob } from "@/lib/marketplace/job-api";
+import { evaluateRemoteJob, getRemoteJob, JobPersistenceUnavailableError, recoverRemoteFunding, reconcileRemoteJob } from "@/lib/marketplace/job-api";
 import { getLocalJob, updateLocalJob } from "@/lib/marketplace/job-store";
 import { getHireSetupStatus } from "@/lib/marketplace/hire-setup";
 import { evaluatorRefreshDelay, type JobEvaluatorResult } from "@/lib/marketplace/evaluator";
@@ -53,6 +53,8 @@ export function JobDetail({ jobId }: { jobId: string }) {
   const [storageNotice, setStorageNotice] = useState<string>();
   const [executionBusy, setExecutionBusy] = useState(false);
   const [executionError, setExecutionError] = useState<string>();
+  const [fundingRecoveryBusy, setFundingRecoveryBusy] = useState(false);
+  const [fundingRecoveryError, setFundingRecoveryError] = useState<string>();
   const [lifecycleBusy, setLifecycleBusy] = useState<string>();
   const [lifecycleError, setLifecycleError] = useState<string>();
   const [evaluation, setEvaluation] = useState<JobEvaluatorResult>();
@@ -126,6 +128,22 @@ export function JobDetail({ jobId }: { jobId: string }) {
     }, delay);
     return () => window.clearTimeout(timer);
   }, [evaluation, job?.id, job?.status, job?.escrow?.status, loadEvaluator]);
+
+  async function recoverFunding() {
+    const pendingFundingHash = job?.escrow?.pendingFundingTransactionHash;
+    if (!job || !pendingFundingHash || fundingRecoveryBusy) return;
+    setFundingRecoveryBusy(true);
+    setFundingRecoveryError(undefined);
+    try {
+      const recovered = await recoverRemoteFunding(job.id, pendingFundingHash);
+      updateLocalJob(job.id, recovered);
+      setJob(recovered);
+    } catch (error) {
+      setFundingRecoveryError(error instanceof Error ? error.message : "The stale funding broadcast could not be recovered.");
+    } finally {
+      setFundingRecoveryBusy(false);
+    }
+  }
 
   async function executeJob() {
     if (!job || executionBusy) return;
@@ -203,14 +221,14 @@ export function JobDetail({ jobId }: { jobId: string }) {
       </header>
 
       <main className="mx-auto max-w-7xl px-4 pb-28 pt-10 sm:px-6 sm:pt-12 lg:pt-20">
-        {!(ready && loadedJobId === jobId) ? <div className="rounded-3xl border border-surface-border bg-surface px-6 py-16 text-center"><h1 className="text-2xl font-semibold">Loading job</h1><p className="mt-2 text-sm text-muted">Checking the saved job record.</p></div> : !job ? <EmptyState title="Job not found" description="No matching server record or local draft is available for this job ID." actionLabel="Back to jobs" actionHref="/jobs" /> : <JobContent job={job} onJobChange={setJob} onExecute={executeJob} executionBusy={executionBusy} executionError={executionError} onLifecycleAction={runLifecycleAction} lifecycleBusy={lifecycleBusy} lifecycleError={lifecycleError} evaluation={evaluation} evaluationBusy={evaluationBusy} evaluationError={evaluationError} onRefreshEvaluation={() => { if (job) void loadEvaluator(job.id).catch(() => undefined); }} />}
+        {!(ready && loadedJobId === jobId) ? <div className="rounded-3xl border border-surface-border bg-surface px-6 py-16 text-center"><h1 className="text-2xl font-semibold">Loading job</h1><p className="mt-2 text-sm text-muted">Checking the saved job record.</p></div> : !job ? <EmptyState title="Job not found" description="No matching server record or local draft is available for this job ID." actionLabel="Back to jobs" actionHref="/jobs" /> : <JobContent job={job} onJobChange={setJob} onExecute={executeJob} executionBusy={executionBusy} executionError={executionError} onRecoverFunding={recoverFunding} fundingRecoveryBusy={fundingRecoveryBusy} fundingRecoveryError={fundingRecoveryError} onLifecycleAction={runLifecycleAction} lifecycleBusy={lifecycleBusy} lifecycleError={lifecycleError} evaluation={evaluation} evaluationBusy={evaluationBusy} evaluationError={evaluationError} onRefreshEvaluation={() => { if (job) void loadEvaluator(job.id).catch(() => undefined); }} />}
         {storageNotice ? <p className="mt-4 text-sm leading-6 text-warning">{storageNotice}</p> : null}
       </main>
     </div>
   );
 }
 
-function JobContent({ job, onJobChange, onExecute, executionBusy, executionError, onLifecycleAction, lifecycleBusy, lifecycleError, evaluation, evaluationBusy, evaluationError, onRefreshEvaluation }: { job: Job; onJobChange: (job: Job) => void; onExecute: () => void; executionBusy: boolean; executionError?: string; onLifecycleAction: (action: "dispute" | "settle" | "refund") => void; lifecycleBusy?: string; lifecycleError?: string; evaluation?: JobEvaluatorResult; evaluationBusy: boolean; evaluationError?: string; onRefreshEvaluation: () => void }) {
+function JobContent({ job, onJobChange, onExecute, executionBusy, executionError, onRecoverFunding, fundingRecoveryBusy, fundingRecoveryError, onLifecycleAction, lifecycleBusy, lifecycleError, evaluation, evaluationBusy, evaluationError, onRefreshEvaluation }: { job: Job; onJobChange: (job: Job) => void; onExecute: () => void; executionBusy: boolean; executionError?: string; onRecoverFunding: () => void; fundingRecoveryBusy: boolean; fundingRecoveryError?: string; onLifecycleAction: (action: "dispute" | "settle" | "refund") => void; lifecycleBusy?: string; lifecycleError?: string; evaluation?: JobEvaluatorResult; evaluationBusy: boolean; evaluationError?: string; onRefreshEvaluation: () => void }) {
   const [currentTime, setCurrentTime] = useState(0);
   const category = getCategoryDefinition(job.category);
   const setup = getHireSetupStatus();
@@ -265,8 +283,13 @@ function JobContent({ job, onJobChange, onExecute, executionBusy, executionError
 
       {pendingFundingHash ? <section className="mt-8 rounded-3xl border border-[#ad6565] bg-[#281313] p-5" role="alert">
         <p className="font-mono text-xs uppercase tracking-[0.16em] text-[#f0b4b4]">Funding needs verification</p>
-        <p className="mt-3 text-sm leading-6 text-[#f0b4b4]">A funding transaction was broadcast, but its receipt is not confirmed. Do not approve another funding transaction. Continue hire will verify this transaction first.</p>
+        <p className="mt-3 text-sm leading-6 text-[#f0b4b4]">A funding transaction was broadcast, but its receipt is not confirmed. Do not approve another funding transaction until the old hash is checked.</p>
         {job.onchainNetwork ? <a href={`${explorerHost}/tx/${pendingFundingHash}`} target="_blank" rel="noreferrer" className="mt-3 inline-flex break-all font-mono text-xs font-semibold text-brand hover:underline">{pendingFundingHash}</a> : null}
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <button type="button" onClick={onRecoverFunding} disabled={fundingRecoveryBusy} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-[#f0b4b4] px-4 py-2 text-sm font-semibold text-[#f0b4b4] hover:bg-[#3a1c1c] disabled:cursor-not-allowed disabled:opacity-50">{fundingRecoveryBusy ? <SpinnerGap size={17} className="animate-spin" /> : <ArrowClockwise size={17} />}{fundingRecoveryBusy ? "Checking old hash" : "Check hash and unlock retry"}</button>
+          <p className="text-xs leading-5 text-[#f0b4b4]">No wallet transaction is sent. The server checks the old hash and the open escrow first.</p>
+        </div>
+        {fundingRecoveryError ? <p className="mt-3 text-sm leading-6 text-[#f0b4b4]" role="alert">{fundingRecoveryError}</p> : null}
       </section> : null}
 
       <section className="mt-12 grid gap-4 lg:grid-cols-[1fr_22rem] lg:items-start">
