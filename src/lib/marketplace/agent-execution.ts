@@ -414,7 +414,7 @@ export async function executeAgentJob(job: Job, agent: Agent, options: AgentExec
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   const body = JSON.stringify(executionPayload(job, agent));
   const providerConfig = getProviderServiceConfig();
-  const signedHeaders = providerConfig.ready && providerConfig.requestSecret && providerEndpointMatches(resolvedEndpoint.endpoint, providerConfig)
+  const signedHeaders = providerConfig.ready && providerConfig.requestSecret && providerEndpointMatches(resolvedEndpoint.endpoint, providerConfig, agent.identity.agentId)
     ? signedProviderRequestHeaders(body, providerConfig.requestSecret)
     : {};
 

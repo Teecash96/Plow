@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { buildProviderRegistrationMetadata, getProviderServiceConfig } from "@/lib/marketplace/provider-service";
+import { buildProviderRegistrationMetadata, getProviderProfileExecutionUrl, getProviderProfileHealthUrl, getProviderProfileMetadataUrl, getProviderServiceConfig } from "@/lib/marketplace/provider-service";
 import { getProviderSignerStatus } from "@/lib/marketplace/provider-submission";
 import { PROVIDER_METADATA_PATH } from "@/lib/marketplace/provider-paths";
 import { ProviderOnboarding } from "./provider-onboarding";
@@ -16,6 +16,18 @@ export default function ProviderPage() {
   const signer = getProviderSignerStatus();
   const metadata = buildProviderRegistrationMetadata(config);
   const metadataUrl = config.publicBaseUrl ? `${config.publicBaseUrl}${PROVIDER_METADATA_PATH}` : undefined;
+  const initialProfiles = config.profiles.map((profile) => ({
+    agentId: profile.agentId,
+    name: profile.name,
+    price: profile.price,
+    currency: profile.currency,
+    supportedCategories: profile.supportedCategories,
+    listingMode: config.profileMode ? "independent" as const : "shared" as const,
+    signerConfigured: getProviderSignerStatus(profile.agentId).configured,
+    executionUrl: getProviderProfileExecutionUrl(config, profile),
+    healthUrl: getProviderProfileHealthUrl(config, profile),
+    metadataUrl: getProviderProfileMetadataUrl(config, profile),
+  }));
 
   return (
     <ProviderOnboarding
@@ -24,6 +36,7 @@ export default function ProviderPage() {
       initialProviderUrl={config.publicBaseUrl}
       initialProviderReady={Boolean(metadata && signer.configured)}
       initialProviderReason={config.reason !== "The provider service is ready." ? config.reason : signer.reason}
+      initialProfiles={initialProfiles}
     />
   );
 }

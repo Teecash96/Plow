@@ -8,7 +8,11 @@ import {
   buildProviderExecutionResult,
   createProviderRequestSignature,
   getProviderServiceConfig,
+  getProviderProfileExecutionUrl,
+  getProviderProfileHealthUrl,
+  getProviderProfileMetadataUrl,
   parseProviderExecutionRequest,
+  providerEndpointMatches,
   readProviderRequestBody,
   signedProviderRequestHeaders,
 } from "../src/lib/marketplace/provider-service";
@@ -169,7 +173,13 @@ test("binds metadata, health, and execution to the selected provider profile", a
 
   const health = await healthGET(new NextRequest("https://provider.example/api/provider/health?agentId=43"));
   expect(health.status).toBe(200);
-  await expect(health.json()).resolves.toMatchObject({ agentId: "43", supportedCategories: ["grid-trading"] });
+  await expect(health.json()).resolves.toMatchObject({
+    agentId: "43",
+    listingMode: "independent",
+    executionEndpoint: "https://provider.example/api/provider/execute?agentId=43",
+    healthEndpoint: "https://provider.example/api/provider/health?agentId=43",
+    supportedCategories: ["grid-trading"],
+  });
 
   const metadata = await metadataGET(new NextRequest("https://provider.example/api/provider/metadata?agentId=43"));
   expect(metadata.status).toBe(200);
@@ -177,11 +187,63 @@ test("binds metadata, health, and execution to the selected provider profile", a
     agentId: "43",
     name: "Grid Provider",
     plow: {
+      profile: { mode: "independent", agentId: "43", category: "grid-trading" },
       health: { endpoint: "https://provider.example/api/provider/health?agentId=43" },
       x402: { amount: "0.50", currency: "USDC" },
       supportedCategories: ["grid-trading"],
     },
   });
+});
+
+test("scopes profile endpoints and signing to the selected identity", () => {
+  process.env.PLOW_PROVIDER_PROFILES = JSON.stringify([
+    { agentId: "42", categories: ["rebalancing"], price: "0.25", currency: "USDC", privateKey: `0x${"1".repeat(64)}` },
+    { agentId: "43", categories: ["grid-trading"], price: "0.25", currency: "USDC", privateKey: `0x${"2".repeat(64)}` },
+  ]);
+
+  const config = getProviderServiceConfig();
+  const profile = config.profiles[1];
+  expect(profile).toBeDefined();
+  expect(getProviderProfileExecutionUrl(config, profile!)).toBe("https://provider.example/api/provider/execute?agentId=43");
+  expect(getProviderProfileHealthUrl(config, profile!)).toBe("https://provider.example/api/provider/health?agentId=43");
+  expect(getProviderProfileMetadataUrl(config, profile!)).toBe("https://provider.example/api/provider/metadata?agentId=43");
+  expect(providerEndpointMatches("https://provider.example/api/provider/execute?agentId=43", config, "43")).toBe(true);
+  expect(providerEndpointMatches("https://provider.example/api/provider/execute?agentId=43", config, "42")).toBe(false);
+});
+
+test("supports explicit endpoints for a profile", () => {
+  process.env.PLOW_PROVIDER_PROFILES = JSON.stringify([
+    {
+      agentId: "43",
+      categories: ["grid-trading"],
+      price: "0.50",
+      currency: "USDC",
+      executionUrl: "https://grid.provider.example/run",
+      healthUrl: "https://grid.provider.example/health",
+      privateKey: `0x${"2".repeat(64)}`,
+    },
+  ]);
+
+  const config = getProviderServiceConfig();
+  const profile = config.profiles[0];
+  expect(getProviderProfileExecutionUrl(config, profile)).toBe("https://grid.provider.example/run");
+  expect(getProviderProfileHealthUrl(config, profile)).toBe("https://grid.provider.example/health");
+  expect(providerEndpointMatches("https://grid.provider.example/run", config, "43")).toBe(true);
+  expect(providerEndpointMatches("https://provider.example/api/provider/execute", config, "43")).toBe(false);
+});
+
+test("rejects a category that belongs to another provider profile", () => {
+  process.env.PLOW_PROVIDER_PROFILES = JSON.stringify([
+    { agentId: "42", categories: ["rebalancing"], price: "0.25", currency: "USDC", privateKey: `0x${"1".repeat(64)}` },
+    { agentId: "43", categories: ["grid-trading"], price: "0.50", currency: "USDC", privateKey: `0x${"2".repeat(64)}` },
+  ]);
+  const payload = JSON.parse(executionBody()) as { job: Record<string, unknown> };
+  payload.job.agentId = "43";
+  payload.job.agentIdentityId = "43";
+  payload.job.price = "0.50";
+  payload.job.payment = { status: "paid", amount: "0.50", currency: "USDC", transactionHash: `0x${"1".repeat(64)}` };
+
+  expect(() => parseProviderExecutionRequest(JSON.stringify(payload))).toThrow("provider does not support this job category");
 });
 
 test("fails closed on duplicate provider profile identities", () => {

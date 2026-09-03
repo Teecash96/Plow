@@ -4,7 +4,7 @@ import { ERC8004_AGENT_REGISTRY } from "@/lib/chain/erc8004-contract";
 import { AGENT_EXECUTION_PROTOCOL, sameDecimal } from "./service-readiness";
 import { getCategoryDefinition } from "./categories";
 import { BSC_ERC8183_PAYMENT_CURRENCY } from "./payment-currency";
-import { PROVIDER_EXECUTION_PATH, PROVIDER_HEALTH_PATH } from "./provider-paths";
+import { PROVIDER_EXECUTION_PATH, PROVIDER_HEALTH_PATH, PROVIDER_METADATA_PATH } from "./provider-paths";
 import { buildStaticProviderExecutionResult } from "./provider-strategies";
 import { AGENT_CATEGORIES, type AgentCategory } from "./types";
 
@@ -36,6 +36,9 @@ export interface ProviderProfileConfig {
   name: string;
   description: string;
   supportedCategories: readonly AgentCategory[];
+  /** Optional profile-specific public endpoints. Defaults are scoped below. */
+  executionUrl?: string;
+  healthUrl?: string;
   /** Server-only signer material. Never include a provider config in a response. */
   privateKey?: string;
 }
@@ -207,6 +210,13 @@ function configuredProfileText(value: unknown, fallback: string, maxLength: numb
   return text && text.length <= maxLength ? text : undefined;
 }
 
+function configuredProfileUrl(value: unknown) {
+  if (value === undefined) return { value: undefined, invalid: false };
+  if (typeof value !== "string" || !value.trim()) return { value: undefined, invalid: true };
+  const url = publicUrl(value.trim());
+  return { value: url, invalid: !url };
+}
+
 interface ConfiguredProfilesResult {
   profileMode: boolean;
   profiles: readonly ProviderProfileConfig[];
@@ -276,6 +286,8 @@ function configuredProfiles(defaults: {
     const supportedCategories = configuredProfileCategories(categoryValue);
     const name = configuredProfileText(value.name, defaults.name, MAX_PROFILE_NAME_LENGTH);
     const description = configuredProfileText(value.description, defaults.description, MAX_PROFILE_DESCRIPTION_LENGTH);
+    const executionUrl = configuredProfileUrl(value.executionUrl);
+    const healthUrl = configuredProfileUrl(value.healthUrl);
     const privateKey = value.privateKey === undefined
       ? undefined
       : typeof value.privateKey === "string" && value.privateKey.trim()
@@ -289,6 +301,8 @@ function configuredProfiles(defaults: {
       || !supportedCategories
       || !name
       || !description
+      || executionUrl.invalid
+      || healthUrl.invalid
       || (privateKey !== undefined && !PRIVATE_KEY_PATTERN.test(privateKey))
     ) {
       return { profileMode: true, profiles: [], error: `PLOW_PROVIDER_PROFILES (profile ${index + 1} is invalid)` };
@@ -303,6 +317,8 @@ function configuredProfiles(defaults: {
       name,
       description,
       supportedCategories,
+      ...(executionUrl.value ? { executionUrl: executionUrl.value } : {}),
+      ...(healthUrl.value ? { healthUrl: healthUrl.value } : {}),
       privateKey,
     });
   }
@@ -371,8 +387,41 @@ export function getProviderProfileForAgent(agentId: string, config = getProvider
   return config.profiles.find((profile) => profile.agentId === agentId);
 }
 
-export function providerEndpointMatches(value: string, config = getProviderServiceConfig()) {
-  return Boolean(config.executionUrl && normalisedEndpoint(value) === normalisedEndpoint(config.executionUrl));
+function scopedProfileEndpoint(endpoint: string | undefined, profile: ProviderProfileConfig, config: ProviderServiceConfig) {
+  if (!endpoint) return undefined;
+  if (!config.profileMode) return endpoint;
+  try {
+    const url = new URL(endpoint);
+    url.searchParams.set("agentId", profile.agentId);
+    return url.toString().replace(/\/$/, "");
+  } catch {
+    return undefined;
+  }
+}
+
+export function getProviderProfileExecutionUrl(config: ProviderServiceConfig, profile: ProviderProfileConfig) {
+  return profile.executionUrl ?? scopedProfileEndpoint(config.executionUrl, profile, config);
+}
+
+export function getProviderProfileHealthUrl(config: ProviderServiceConfig, profile: ProviderProfileConfig) {
+  return profile.healthUrl ?? scopedProfileEndpoint(config.healthUrl, profile, config);
+}
+
+export function getProviderProfileMetadataUrl(config: ProviderServiceConfig, profile: ProviderProfileConfig) {
+  return scopedProfileEndpoint(endpointFromBase(config.publicBaseUrl, PROVIDER_METADATA_PATH), profile, config);
+}
+
+export function providerEndpointMatches(value: string, config = getProviderServiceConfig(), agentId?: string) {
+  const candidate = normalisedEndpoint(value);
+  if (!candidate) return false;
+  const profile = agentId ? getProviderProfileForAgent(agentId, config) : undefined;
+  const expected = profile ? getProviderProfileExecutionUrl(config, profile) : config.executionUrl;
+  if (expected && candidate === normalisedEndpoint(expected)) return true;
+
+  // Accept metadata published before profile-scoped endpoints were added. This
+  // keeps a rolling deployment safe while still requiring the selected profile
+  // when a profile-specific endpoint is configured.
+  return Boolean(profile && !profile.executionUrl && config.executionUrl && candidate === normalisedEndpoint(config.executionUrl));
 }
 
 export function createProviderRequestSignature(body: string, timestamp: string, secret: string) {
@@ -565,26 +614,15 @@ export function buildProviderExecutionResult(request: ProviderExecutionRequest):
   });
 }
 
-function profileHealthEndpoint(config: ProviderServiceConfig, profile: ProviderProfileConfig) {
-  const endpoint = config.healthUrl ?? endpointFromBase(config.publicBaseUrl, PROVIDER_HEALTH_PATH);
-  if (!endpoint) return undefined;
-  if (config.profiles.length < 2) return endpoint;
-  try {
-    const url = new URL(endpoint);
-    url.searchParams.set("agentId", profile.agentId);
-    return url.toString();
-  } catch {
-    return undefined;
-  }
-}
-
 export function buildProviderRegistrationMetadata(
   config = getProviderServiceConfig(),
   profile = config.profiles[0],
 ) {
   if (!config.ready || !config.publicBaseUrl || !profile) return undefined;
-  const executionEndpoint = config.executionUrl ?? endpointFromBase(config.publicBaseUrl, PROVIDER_EXECUTION_PATH);
-  const healthEndpoint = profileHealthEndpoint(config, profile);
+  const executionEndpoint = getProviderProfileExecutionUrl(config, profile)
+    ?? endpointFromBase(config.publicBaseUrl, PROVIDER_EXECUTION_PATH);
+  const healthEndpoint = getProviderProfileHealthUrl(config, profile)
+    ?? endpointFromBase(config.publicBaseUrl, PROVIDER_HEALTH_PATH);
   if (!executionEndpoint || !healthEndpoint) return undefined;
 
   return {
@@ -607,6 +645,11 @@ export function buildProviderRegistrationMetadata(
       },
     ],
     plow: {
+      profile: {
+        mode: config.profileMode ? "independent" : "shared",
+        agentId: profile.agentId,
+        category: profile.supportedCategories.length === 1 ? profile.supportedCategories[0] : undefined,
+      },
       health: { endpoint: healthEndpoint },
       x402: {
         supported: true,

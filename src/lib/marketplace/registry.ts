@@ -238,6 +238,7 @@ function mapLiveRecord(
     mode: "live",
     verified: identityVerified,
     category: category.category,
+    ...(serviceMetadata.listingMode ? { listingMode: serviceMetadata.listingMode } : {}),
     supportedCategories: serviceMetadata.supportedCategories
       ?? (category.category !== "uncategorised" ? [category.category] : undefined),
     categorySource: category.source,
@@ -432,7 +433,7 @@ async function verifyLiveServiceReadiness(
     && providerProfile
     && providerSigner.configured
     && metadata.executionEndpoint
-    && providerEndpointMatches(metadata.executionEndpoint, providerConfig)
+    && providerEndpointMatches(metadata.executionEndpoint, providerConfig, record.agentId)
     && providerSigner.address
     && record.owner
     && record.owner.toLowerCase() === providerSigner.address.toLowerCase(),

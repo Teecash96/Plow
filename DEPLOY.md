@@ -116,7 +116,7 @@ The repository includes a provider service for a testnet agent. Leave it disable
 | `PLOW_PROVIDER_PUBLIC_URL` | Yes for metadata | Public HTTPS origin used to build service URLs. |
 | `PLOW_PROVIDER_EXECUTION_URL` | No | Exact execution URL. Defaults to `/api/provider/execute` under the public URL. |
 | `PLOW_PROVIDER_SUPPORTED_CATEGORIES` | No | Comma separated category IDs for legacy mode. Defaults to all four required categories. |
-| `PLOW_PROVIDER_PROFILES` | Yes in multi identity mode | JSON array of profiles. Each profile must contain a unique `agentId`, `categories`, `price`, `currency`, and its own server only `privateKey`. |
+| `PLOW_PROVIDER_PROFILES` | Yes in multi identity mode | JSON array of profiles. Each profile must contain a unique `agentId`, `categories`, `price`, `currency`, and its own server only `privateKey`. Optional `executionUrl` and `healthUrl` override the default agent ID scoped endpoints. |
 | `PLOW_PROVIDER_POOL_ADDRESS` | No | Default PancakeSwap V3 pool used by rebalancing and grid reads. A task may also include a pool address. |
 | `PLOW_PROVIDER_YIELD_VAULTS` | No | JSON array of configured ERC 4626 vault addresses and names for yield comparison. |
 | `PLOW_PROVIDER_LENDING_POOL_ADDRESS` | No | Lending pool exposing `getUserAccountData` for health factor reads. |

@@ -40,6 +40,17 @@ test("does not treat a generic A2A endpoint or false x402 flag as a hire contrac
   expect(parsed.pricing).toBeUndefined();
 });
 
+test("reads the listing mode published by a provider profile", () => {
+  const parsed = parseAgentServiceMetadata({
+    plow: {
+      profile: { mode: "independent", agentId: "43", category: "grid-trading" },
+      supportedCategories: ["grid-trading"],
+    },
+  });
+
+  expect(parsed).toMatchObject({ listingMode: "independent", supportedCategories: ["grid-trading"] });
+});
+
 test("compares provider prices without allowing a different payment amount", () => {
   expect(sameDecimal("0.25", "0.250")).toBe(true);
   expect(sameDecimal("0.25", "0.26")).toBe(false);

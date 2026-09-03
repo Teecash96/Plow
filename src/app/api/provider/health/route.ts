@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getProviderProfileForAgent, getProviderServiceConfig } from "@/lib/marketplace/provider-service";
+import { getProviderProfileExecutionUrl, getProviderProfileForAgent, getProviderProfileHealthUrl, getProviderServiceConfig } from "@/lib/marketplace/provider-service";
 import { getProviderSignerStatus } from "@/lib/marketplace/provider-submission";
 
 export const dynamic = "force-dynamic";
@@ -24,10 +24,16 @@ export async function GET(request: NextRequest = new NextRequest("http://localho
     );
   }
 
+  const executionEndpoint = getProviderProfileExecutionUrl(config, profile);
+  const healthEndpoint = getProviderProfileHealthUrl(config, profile);
+
   return NextResponse.json(
     {
       status: "ok",
       agentId: profile.agentId,
+      listingMode: config.profileMode ? "independent" : "shared",
+      ...(executionEndpoint ? { executionEndpoint } : {}),
+      ...(healthEndpoint ? { healthEndpoint } : {}),
       supportedCategories: profile.supportedCategories,
       strategyProtocol: "plow-provider-strategies-v1",
       heartbeatAt: new Date().toISOString(),

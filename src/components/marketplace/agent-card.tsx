@@ -41,7 +41,10 @@ export function AgentCard({ agent, selected = false, onToggleCompare }: AgentCar
           </div>
           <h2 className="mt-4 break-words text-2xl font-semibold tracking-tight text-wrap-balance">{agent.name}</h2>
           <p className="mt-1 break-all font-mono text-xs text-muted">{agent.id}</p>
-          {agent.mode === "demo" ? <span className="mt-3 inline-flex rounded-full border border-[#9a843c] bg-[#211d0d] px-2.5 py-1 text-xs font-semibold text-[#e8d995]">Demo fixture</span> : isLiveVerified ? <span className="mt-3 inline-flex rounded-full border border-[#5a9876] bg-[#10261c] px-2.5 py-1 text-xs font-semibold text-positive">Live on BSC</span> : <span className="mt-3 inline-flex rounded-full border border-[#9a843c] bg-[#211d0d] px-2.5 py-1 text-xs font-semibold text-warning">Registry candidate</span>}
+          <div className="mt-3 flex flex-wrap gap-2">
+            {agent.mode === "demo" ? <span className="inline-flex rounded-full border border-[#9a843c] bg-[#211d0d] px-2.5 py-1 text-xs font-semibold text-[#e8d995]">Demo fixture</span> : isLiveVerified ? <span className="inline-flex rounded-full border border-[#5a9876] bg-[#10261c] px-2.5 py-1 text-xs font-semibold text-positive">Live on BSC</span> : <span className="inline-flex rounded-full border border-[#9a843c] bg-[#211d0d] px-2.5 py-1 text-xs font-semibold text-warning">Registry candidate</span>}
+            {agent.listingMode === "independent" ? <span className="inline-flex rounded-full border border-brand/50 bg-brand/10 px-2.5 py-1 text-xs font-semibold text-brand">Independent listing</span> : agent.supportedCategories && agent.supportedCategories.length > 1 ? <span className="inline-flex rounded-full border border-surface-border px-2.5 py-1 text-xs font-semibold text-muted">Shared multi strategy</span> : null}
+          </div>
         </div>
         {onToggleCompare ? (
           <button

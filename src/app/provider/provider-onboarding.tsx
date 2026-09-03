@@ -21,6 +21,7 @@ import {
   type Erc8004TransactionResult,
 } from "@/lib/chain/erc8004-wallet";
 import { PROVIDER_HEALTH_PATH, PROVIDER_METADATA_PATH } from "@/lib/marketplace/provider-paths";
+import { ProviderProfileMatrix, type ProviderProfileSummary } from "./provider-profile-matrix";
 
 interface ProviderOnboardingProps {
   initialAgentId?: string;
@@ -28,6 +29,7 @@ interface ProviderOnboardingProps {
   initialProviderUrl?: string;
   initialProviderReady: boolean;
   initialProviderReason: string;
+  initialProfiles: readonly ProviderProfileSummary[];
 }
 
 type BusyAction = "register" | "check" | "publish" | undefined;
@@ -73,6 +75,7 @@ export function ProviderOnboarding({
   initialProviderUrl,
   initialProviderReady,
   initialProviderReason,
+  initialProfiles,
 }: ProviderOnboardingProps) {
   const [providerUrl, setProviderUrl] = useState(initialProviderUrl ?? "");
   const [agentId, setAgentId] = useState(initialAgentId ?? "");
@@ -223,6 +226,8 @@ export function ProviderOnboarding({
           </div>
         </section>
 
+        <ProviderProfileMatrix initialProfiles={initialProfiles} />
+
         <section className="mt-10 grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
           <div className="space-y-6">
             <article className="rounded-3xl border border-surface-border bg-surface p-5 sm:p-6">
@@ -349,8 +354,8 @@ export function ProviderOnboarding({
               <pre className="mt-4 overflow-x-auto rounded-2xl border border-surface-border bg-black p-4 font-mono text-xs leading-6 text-[#e8d995]">{`PLOW_PROVIDER_ENABLED=true
 PLOW_PROVIDER_PUBLIC_URL=${publicBaseUrl || "<public HTTPS URL>"}
 PLOW_PROVIDER_REQUEST_SECRET=<server secret>
-PLOW_PROVIDER_PROFILES='[{"agentId":"${agentId || "<agent ID>"}","categories":["rebalancing"],"price":"0.25","currency":"U","privateKey":"<identity owner key>"}]'`}</pre>
-              <p className="mt-4 text-xs leading-5 text-muted">The four categories are rebalancing, grid trading, yield optimisation, and health factor monitoring. One identity may advertise all four. Four separate listings need four identities and four signer keys. This page never collects those keys.</p>
+PLOW_PROVIDER_PROFILES='[{"agentId":"${agentId || "<rebalancing agent ID>"}","categories":["rebalancing"],"price":"0.25","currency":"U","privateKey":"<rebalancing owner key>"},{"agentId":"<grid agent ID>","categories":["grid-trading"],"price":"0.25","currency":"U","privateKey":"<grid owner key>"},{"agentId":"<yield agent ID>","categories":["yield-optimisation"],"price":"0.25","currency":"U","privateKey":"<yield owner key>"},{"agentId":"<health agent ID>","categories":["health-factor-monitoring"],"price":"0.25","currency":"U","privateKey":"<health owner key>"}]'`}</pre>
+              <p className="mt-4 text-xs leading-5 text-muted">The four categories are rebalancing, grid trading, yield optimisation, and health factor monitoring. Use one real identity and signer key for each independent listing. The default shared route is scoped with the profile agent ID. Add profile executionUrl and healthUrl only when a category uses a separate provider service. This page never collects private keys.</p>
             </div>
 
             {walletAddress ? (

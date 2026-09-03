@@ -13,6 +13,7 @@ export interface ParsedAgentServiceMetadata {
   x402Supported: boolean;
   pricing?: AgentPricing;
   declaredHeartbeatAt?: string;
+  listingMode?: "shared" | "independent";
   supportedCategories?: readonly AgentCategory[];
 }
 
@@ -201,16 +202,25 @@ function readSupportedCategories(metadata: JsonRecord) {
   return categories.length > 0 ? categories : undefined;
 }
 
+function readListingMode(metadata: JsonRecord) {
+  const plow = asRecord(metadata.plow);
+  const profile = asRecord(plow?.profile);
+  const mode = firstString(profile?.mode, plow?.listingMode, metadata.listingMode);
+  return mode === "shared" || mode === "independent" ? mode : undefined;
+}
+
 export function parseAgentServiceMetadata(metadata: JsonRecord | undefined): ParsedAgentServiceMetadata {
   if (!metadata) return { x402Supported: false };
   const services = Array.isArray(metadata.services) ? metadata.services : [];
   const plow = asRecord(metadata.plow);
   const heartbeat = firstRecord(plow?.heartbeat, metadata.heartbeat);
+  const listingMode = readListingMode(metadata);
   return {
     executionEndpoint: explicitExecutionEndpoint(metadata, services),
     healthEndpoint: explicitHealthEndpoint(metadata, services),
     x402Supported: readX402Support(metadata),
     pricing: readPricing(metadata),
+    ...(listingMode ? { listingMode } : {}),
     supportedCategories: readSupportedCategories(metadata),
     declaredHeartbeatAt: timestamp(
       heartbeat?.heartbeatAt

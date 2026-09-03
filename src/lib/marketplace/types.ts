@@ -10,6 +10,7 @@ export type RegistryCategory = AgentCategory | "uncategorised";
 
 export type AgentAvailability = "live" | "stale" | "offline" | "unverified";
 export type AgentMode = "demo" | "live";
+export type AgentListingMode = "shared" | "independent";
 export type FreshnessState = "fresh" | "stale" | "unknown";
 
 export type EvidenceKind =
@@ -222,6 +223,7 @@ export interface Agent {
   mode: AgentMode;
   verified: boolean;
   category: RegistryCategory;
+  listingMode?: AgentListingMode;
   supportedCategories?: readonly AgentCategory[];
   categorySource?: "metadata" | "manual" | "demo" | "uncategorised";
   categoryEvidence?: CategoryEvidence;
