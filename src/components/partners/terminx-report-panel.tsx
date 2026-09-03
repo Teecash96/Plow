@@ -25,6 +25,10 @@ export function TermiXReportPanel({ reports }: { reports?: readonly TermiXAdvant
         <div className="mt-6 rounded-2xl border border-dashed border-surface-border bg-black p-5">
           <p className="text-sm font-semibold">No benchmark report connected</p>
           <p className="mt-2 text-sm leading-6 text-muted">A report will compare both operators on the same task. Time, cost, output quality, sample size, timestamp, and source will remain blank until TermiX evidence is attached.</p>
+          <div className="mt-5 grid gap-2 sm:grid-cols-3" aria-label="Required benchmark runs">
+            {["Trading or market task", "Security or risk task", "A second repeatable task"].map((task) => <div key={task} className="rounded-xl border border-surface-border bg-surface px-3 py-3 text-xs text-muted"><span className="block font-semibold text-foreground">Pending</span><span className="mt-1 block leading-5">{task}</span></div>)}
+          </div>
+          <p className="mt-4 text-xs leading-5 text-[#e8d995]">Run each task once manually and once through a paid Plow job. Attach the actual outputs before calling this bounty evidence complete.</p>
         </div>
       ) : (
         <div className="mt-6 space-y-4">

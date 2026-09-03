@@ -424,6 +424,7 @@ export interface Job {
   resultSummary?: string;
   execution?: JobExecution;
   review?: JobReview;
+  publicProof?: boolean;
   fundMovingAction?: FundMovingAction;
   escrow?: JobEscrow;
   simulation?: JobSimulation;

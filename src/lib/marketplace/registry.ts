@@ -30,6 +30,7 @@ export interface MarketplaceRegistryResult {
   agents: readonly Agent[];
   liveAgents: readonly Agent[];
   demoAgents: readonly Agent[];
+  verifiedLiveAgentsCount: number;
   liveStatus: LiveRegistryStatus;
   fetchedAt: string;
   scan: ERC8004ScanSummary;
@@ -321,11 +322,27 @@ function mergeAgents(liveAgents: readonly Agent[], demoAgents: readonly Agent[])
   return [...merged.values()];
 }
 
+async function loadConfiguredProviderAgents() {
+  const config = getProviderServiceConfig();
+  const profiles = config.profiles.filter((profile) => /^\d+$/.test(profile.agentId));
+  const results = await Promise.all(profiles.map(async (profile) => {
+    try {
+      return await getDirectMarketplaceAgentById(profile.agentId);
+    } catch {
+      return undefined;
+    }
+  }));
+  return results.filter((agent): agent is Agent => Boolean(agent));
+}
+
 async function loadMarketplaceRegistry(): Promise<MarketplaceRegistryResult> {
-  const discovery = await discoverERC8004Agents();
+  const [discovery, configuredProviderAgents] = await Promise.all([
+    discoverERC8004Agents(),
+    loadConfiguredProviderAgents(),
+  ]);
   const discoveredLiveAgents = discovery.records.map((record) => mapLiveRecord(record, discovery.fetchedAt));
   const staticLiveAgents = DEMO_AND_STATIC_AGENTS.filter((agent) => agent.mode === "live");
-  const liveAgents = [...discoveredLiveAgents, ...staticLiveAgents];
+  const liveAgents = [...configuredProviderAgents, ...discoveredLiveAgents, ...staticLiveAgents];
   const demoAgents = DEMO_AND_STATIC_AGENTS.filter((agent) => agent.mode === "demo");
   const agents = mergeAgents(liveAgents, demoAgents);
 
@@ -333,6 +350,7 @@ async function loadMarketplaceRegistry(): Promise<MarketplaceRegistryResult> {
     agents,
     liveAgents,
     demoAgents,
+    verifiedLiveAgentsCount: liveAgents.filter((agent) => agent.verified).length,
     liveStatus: discovery.status,
     fetchedAt: discovery.fetchedAt,
     scan: discovery.scan,
@@ -352,6 +370,7 @@ async function refreshMarketplaceRegistry(previous?: MarketplaceRegistryResult) 
       ...fresh,
       agents: mergeAgents(previous.liveAgents, fresh.demoAgents),
       liveAgents: previous.liveAgents,
+      verifiedLiveAgentsCount: previous.verifiedLiveAgentsCount,
       liveStatus: "stale" as const,
       lastSuccessfulFetchAt: previous.lastSuccessfulFetchAt ?? previous.fetchedAt,
       scan: { ...fresh.scan, limited: true, warning },

@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import type { Address } from "viem";
 import {
   buildLiveProviderExecutionResult,
+  buildProviderTelemetrySnapshot,
   type BscChainSnapshot,
   type ProviderHealthFactorSnapshot,
   type ProviderPoolSnapshot,
@@ -131,6 +132,32 @@ test("runs a live rebalancing provider against BSC pool telemetry", async () => 
   expect(result.resultSummary).toContain("block 50000000");
   expect(result.resultSummary).toContain("Spot is inside the requested range");
   expect(result.resultSummary).toContain("No DeFi transaction was attempted");
+});
+
+test("builds structured marketplace telemetry with the current BSC block", async () => {
+  process.env.PLOW_PROVIDER_POOL_ADDRESS = POOL;
+  const snapshot = await buildProviderTelemetrySnapshot("rebalancing", { reader });
+
+  expect(snapshot).toMatchObject({
+    category: "rebalancing",
+    status: "live",
+    source: "BSC Mainnet RPC",
+    blockNumber: "50000000",
+    headline: "WBNB/USDT is readable on BSC Mainnet",
+  });
+  expect(snapshot.metrics).toEqual(expect.arrayContaining([
+    expect.objectContaining({ label: "Spot price", value: "600.00000000 USDT/WBNB" }),
+    expect.objectContaining({ label: "Current tick", value: "12" }),
+  ]));
+});
+
+test("keeps health telemetry partial until a position account is configured", async () => {
+  process.env.PLOW_PROVIDER_LENDING_POOL_ADDRESS = LENDING_POOL;
+  const snapshot = await buildProviderTelemetrySnapshot("health-factor-monitoring", { reader });
+
+  expect(snapshot.status).toBe("partial");
+  expect(snapshot.headline).toContain("wallet position");
+  expect(snapshot.detail).not.toContain(ACCOUNT);
 });
 
 test("runs a live grid provider and returns bounded levels without placing orders", async () => {

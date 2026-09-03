@@ -23,9 +23,17 @@ function priceValue(agent: Agent) {
   return Number.isNaN(parsed) ? Number.POSITIVE_INFINITY : parsed;
 }
 
+function ratingValue(agent: Agent) {
+  return agent.reputation.rating !== undefined && agent.reputation.reviewCount > 0
+    ? `${agent.reputation.rating.toFixed(1)} / 5`
+    : "Unrated";
+}
+
 interface AgentsBrowserProps {
   agents: readonly Agent[];
+  initialCategory?: RegistryCategory | "all";
   liveAgentsCount: number;
+  verifiedLiveAgentsCount: number;
   liveStatus: LiveRegistryStatus;
   scan: ERC8004ScanSummary;
 }
@@ -35,13 +43,14 @@ function formatCount(value: string) {
   return Number.isSafeInteger(parsed) ? parsed.toLocaleString() : value;
 }
 
-export function AgentsBrowser({ agents, liveAgentsCount, liveStatus, scan }: AgentsBrowserProps) {
+export function AgentsBrowser({ agents, initialCategory = "all", liveAgentsCount, verifiedLiveAgentsCount, liveStatus, scan }: AgentsBrowserProps) {
   const [query, setQuery] = useState("");
-  const [category, setCategory] = useState<RegistryCategory | "all">("all");
+  const [category, setCategory] = useState<RegistryCategory | "all">(initialCategory);
   const [freshness, setFreshness] = useState<FreshnessFilter>("all");
   const [availability, setAvailability] = useState<AvailabilityFilter>("all");
   const [sort, setSort] = useState<SortOption>("newest");
   const [compared, setCompared] = useState<string[]>([]);
+  const [comparisonOpen, setComparisonOpen] = useState(false);
 
   const filteredAgents = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -67,6 +76,11 @@ export function AgentsBrowser({ agents, liveAgentsCount, liveStatus, scan }: Age
     for (const agent of agents) counts[agent.category] = (counts[agent.category] ?? 0) + 1;
     return counts;
   }, [agents]);
+
+  const comparedAgents = useMemo(
+    () => compared.map((agentId) => agents.find((agent) => agent.id === agentId)).filter((agent): agent is Agent => Boolean(agent)),
+    [agents, compared],
+  );
 
   function toggleCompare(agentId: string) {
     setCompared((current) => {
@@ -157,14 +171,14 @@ export function AgentsBrowser({ agents, liveAgentsCount, liveStatus, scan }: Age
           </div>
           <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-xs text-muted">
             <p>{filteredAgents.length} agent records match these filters.</p>
-            <p>Metrics remain empty until a verified source is connected.</p>
+            <p>Live cards use structured telemetry when a source is connected. Empty values remain honest.</p>
           </div>
         </section>
 
         <section className="mt-6 rounded-2xl border border-surface-border bg-surface px-4 py-3 text-sm" aria-live="polite">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="font-mono text-xs uppercase tracking-[0.14em] text-muted">Registry coverage</p>
-            <p className="font-mono text-xs text-muted">{formatCount(scan.scannedBlocks)} blocks scanned · {liveAgentsCount} live agents found</p>
+            <p className="font-mono text-xs text-muted">{formatCount(scan.scannedBlocks)} blocks scanned · {verifiedLiveAgentsCount} verified live · {liveAgentsCount} live records</p>
           </div>
           <p className="mt-2 text-xs text-muted">Category tab counts include the four demo fixtures. Live category labels use metadata evidence and can remain Uncategorised.</p>
           {liveStatus === "unavailable" ? (
@@ -174,7 +188,7 @@ export function AgentsBrowser({ agents, liveAgentsCount, liveStatus, scan }: Age
           ) : liveStatus === "empty" ? (
             <p className="text-muted">No live ERC 8004 registrations were found in the current BSC scan window. Demo records are marked clearly.</p>
           ) : (
-            <p className="text-positive">Live ERC 8004 registrations are shown with a Live on BSC badge. Performance and freshness stay empty until a source is connected.</p>
+            <p className="text-positive">Live ERC 8004 registrations are shown with identity, service, heartbeat, and provider telemetry status. Performance history remains empty until a verified history source exists.</p>
           )}
           {scan.warning ? <p className="mt-2 text-xs leading-5 text-muted">{scan.warning}</p> : null}
           {scan.indexer?.used && scan.indexer.returned > 0 ? <p className="mt-2 text-xs leading-5 text-muted">The registry indexer added {scan.indexer.returned} candidate records. On chain token URI checks remain authoritative.</p> : null}
@@ -199,6 +213,45 @@ export function AgentsBrowser({ agents, liveAgentsCount, liveStatus, scan }: Age
         </section>
       </main>
 
+      {comparisonOpen && comparedAgents.length >= 2 ? (
+        <section className="fixed inset-x-0 bottom-[5.25rem] z-30 mx-auto max-h-[70vh] w-[min(90rem,calc(100%-2rem))] overflow-y-auto rounded-3xl border border-brand/50 bg-[#181818]/98 p-4 shadow-2xl shadow-black/50 backdrop-blur-xl sm:bottom-[6rem] sm:p-6" aria-label="Agent comparison results">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <p className="font-mono text-xs uppercase tracking-[0.16em] text-brand">Comparison</p>
+              <h2 className="mt-2 text-2xl font-semibold">Make the tradeoff visible</h2>
+              <p className="mt-2 text-sm text-muted">These values come from the current registry records. Not enough data means Plow has no verified claim.</p>
+            </div>
+            <button type="button" onClick={() => setComparisonOpen(false)} className="inline-flex min-h-11 items-center rounded-full border border-surface-border px-3 py-2 text-sm font-semibold text-muted hover:border-[#6a6a6a] hover:text-foreground focus:outline-none focus:ring-2 focus:ring-brand">Close comparison</button>
+          </div>
+          <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {comparedAgents.map((agent) => {
+              const primaryMetric = agent.categoryMetrics[0];
+              const live = agent.mode === "live" && agent.verified && agent.deployment.availability === "live";
+              return (
+                <article key={agent.id} className="rounded-2xl border border-surface-border bg-black p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <h3 className="break-words text-base font-semibold">{agent.name}</h3>
+                      <p className="mt-1 text-xs text-muted">{agent.category === "uncategorised" ? "Uncategorised" : agent.category}</p>
+                    </div>
+                    <span className={`shrink-0 rounded-full border px-2 py-1 text-[11px] font-semibold ${live ? "border-[#5a9876] text-positive" : "border-surface-border text-muted"}`}>{live ? "Live" : agent.mode === "demo" ? "Demo" : "Pending"}</span>
+                  </div>
+                  <dl className="mt-4 grid grid-cols-2 gap-3 text-xs">
+                    <div><dt className="text-muted">Price</dt><dd className="mt-1 font-semibold">{agent.pricing.amount} {agent.pricing.currency}</dd></div>
+                    <div><dt className="text-muted">Freshness</dt><dd className="mt-1 font-semibold capitalize">{agent.deployment.freshnessState}</dd></div>
+                    <div><dt className="text-muted">Verified jobs</dt><dd className="mt-1 font-semibold">{agent.reputation.completedJobs}</dd></div>
+                    <div><dt className="text-muted">Rating</dt><dd className="mt-1 font-semibold">{ratingValue(agent)}</dd></div>
+                    <div className="col-span-2"><dt className="text-muted">Primary metric</dt><dd className="mt-1 break-words font-semibold">{primaryMetric?.value ?? "Not enough data"}</dd></div>
+                    <div className="col-span-2"><dt className="text-muted">ERC 8004 identity</dt><dd className="mt-1 break-all font-mono">{agent.identity.agentId}</dd></div>
+                  </dl>
+                  <Link href={`/agents/${agent.slug}`} className="mt-4 inline-flex min-h-10 items-center text-sm font-semibold text-brand hover:underline focus:outline-none focus:ring-2 focus:ring-brand">Open listing</Link>
+                </article>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
+
       <aside aria-label="Agent comparison" className="pointer-events-none fixed inset-x-0 bottom-3 z-30 flex justify-center px-4 sm:bottom-4 sm:px-6">
         <div className="pointer-events-auto flex w-full max-w-xl items-center justify-between gap-3 rounded-2xl border border-surface-border bg-[#181818]/95 px-3 py-3 shadow-2xl shadow-black/40 backdrop-blur-xl sm:gap-4 sm:px-4">
           <div className="flex min-w-0 items-center gap-3">
@@ -208,7 +261,7 @@ export function AgentsBrowser({ agents, liveAgentsCount, liveStatus, scan }: Age
               <p className="text-xs text-muted">{compared.length} selected</p>
             </div>
           </div>
-          <button type="button" disabled={compared.length < 2} className="inline-flex min-h-11 shrink-0 items-center rounded-full bg-brand px-3 py-2 text-sm font-semibold text-black disabled:cursor-not-allowed disabled:bg-[#5a5230] disabled:text-[#b9ae7b] sm:px-4">
+          <button type="button" disabled={compared.length < 2} onClick={() => setComparisonOpen(true)} className="inline-flex min-h-11 shrink-0 items-center rounded-full bg-brand px-3 py-2 text-sm font-semibold text-black disabled:cursor-not-allowed disabled:bg-[#5a5230] disabled:text-[#b9ae7b] sm:px-4">
             Compare selected
           </button>
         </div>

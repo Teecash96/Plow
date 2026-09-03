@@ -13,7 +13,10 @@ import {
   SquaresFour,
   Wallet,
 } from "@phosphor-icons/react/ssr";
+import { Suspense } from "react";
+import Link from "next/link";
 import { TaglineReveal } from "@/app/components/tagline-reveal";
+import { LiveStrategyWall, StrategyWallSkeleton } from "@/components/marketplace/live-strategy-wall";
 import { CATEGORY_DEFINITIONS } from "@/lib/marketplace/categories";
 import type { AgentCategory } from "@/lib/marketplace/types";
 
@@ -53,6 +56,8 @@ const faqItems = [
       "The hiring flow lets you review a Plow permission policy with a spend cap, allowlist, expiration, and server enforced revoke control.",
   },
 ];
+
+export const dynamic = "force-dynamic";
 
 export default function Home() {
   return (
@@ -144,36 +149,20 @@ export default function Home() {
             <div className="rounded-2xl border border-surface-border bg-black p-5 sm:p-6">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <p className="font-mono text-xs uppercase tracking-[0.16em] text-muted">Live agent wall</p>
-                  <h2 className="mt-3 text-2xl font-semibold tracking-tight">Evidence before trust</h2>
+                  <p className="font-mono text-xs uppercase tracking-[0.16em] text-brand">Live strategy wall</p>
+                  <h2 className="mt-3 text-2xl font-semibold tracking-tight">Choose what you need to do</h2>
                 </div>
-                <span className="inline-flex items-center gap-2 rounded-full border border-[#5a9876] bg-[#10271f] px-3 py-1 text-xs text-positive">
+                <span className="inline-flex items-center gap-2 rounded-full border border-surface-border bg-surface px-3 py-1 text-xs text-muted">
                   <Pulse size={14} weight="bold" />
-                  Feed pending
+                  BSC telemetry
                 </span>
               </div>
-              <div className="mt-8 space-y-3">
-                {CATEGORY_DEFINITIONS.map((category) => {
-                  const Icon = categoryIcons[category.id];
-                  return (
-                    <div key={category.id} className="flex flex-col items-start gap-3 rounded-2xl border border-surface-border bg-surface px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
-                      <div className="flex min-w-0 items-center gap-3">
-                        <span className="flex size-9 items-center justify-center rounded-xl bg-surface-raised text-brand">
-                          <Icon size={18} />
-                        </span>
-                        <div>
-                          <p className="break-words text-sm font-semibold">{category.label}</p>
-                          <p className="mt-1 text-xs text-muted">Awaiting verified agent data</p>
-                        </div>
-                      </div>
-                      <span className="self-end font-mono text-xs text-muted sm:self-auto">Not enough data</span>
-                    </div>
-                  );
-                })}
-              </div>
+              <Suspense fallback={<StrategyWallSkeleton compact />}>
+                <LiveStrategyWall compact />
+              </Suspense>
               <div className="mt-5 flex items-center gap-2 border-t border-surface-border pt-4 text-xs text-muted">
                 <ShieldCheck size={16} className="text-brand" />
-                Hiring stays disabled until identity, Mainnet, and freshness checks pass.
+                Each listing shows its identity, price, latest BSC block, and what is still missing.
               </div>
             </div>
           </div>
@@ -191,7 +180,7 @@ export default function Home() {
               return (
                 <a
                   key={category.id}
-                  href="#featured-agents"
+                  href={`/agents?category=${encodeURIComponent(category.id)}`}
                   className="group min-h-64 rounded-3xl border border-surface-border bg-surface p-5 transition-all duration-700 ease-[cubic-bezier(0.32,0.72,0,1)] hover:-translate-y-1 hover:border-[#6a6a6a] hover:bg-surface-raised focus:outline-none focus:ring-2 focus:ring-brand focus:ring-offset-2 focus:ring-offset-black sm:p-6"
                 >
                   <div className="flex items-start justify-between">
@@ -222,23 +211,23 @@ export default function Home() {
             <div className="max-w-2xl">
               <p className="font-mono text-xs uppercase tracking-[0.16em] text-brand">Marketplace preview</p>
               <h2 className="mt-4 text-4xl font-semibold tracking-tight text-wrap-balance sm:text-5xl">Live agents with proof attached</h2>
-              <p className="mt-5 text-lg leading-7 text-muted text-wrap-pretty">The first listings will appear here after they pass identity, Mainnet, and freshness checks.</p>
+              <p className="mt-5 text-lg leading-7 text-muted text-wrap-pretty">The wall above gives the fast path. The full browse surface adds comparisons, identity records, reviews, and execution evidence.</p>
             </div>
-            <a href="#categories" className="inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-brand focus:outline-none focus:ring-2 focus:ring-brand focus:ring-offset-2 focus:ring-offset-black">
-              Browse categories
+            <Link href="/agents" className="inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-brand focus:outline-none focus:ring-2 focus:ring-brand focus:ring-offset-2 focus:ring-offset-black">
+              Open marketplace
               <ArrowRight size={16} />
-            </a>
+            </Link>
           </div>
           <div className="mt-10 rounded-3xl border border-dashed border-surface-border bg-surface px-6 py-14 text-center sm:px-10">
             <span className="mx-auto flex size-12 items-center justify-center rounded-2xl bg-surface-raised text-brand">
               <SquaresFour size={24} />
             </span>
-            <h3 className="mt-5 text-xl font-semibold">No verified agents connected yet</h3>
-            <p className="mx-auto mt-3 max-w-lg text-sm leading-6 text-muted">This empty state is intentional. We will never show invented performance numbers. Verified agent records will appear with timestamps, sample sizes, and evidence links.</p>
-            <a href="#trust" className="mt-6 inline-flex min-h-11 items-center gap-2 rounded-full border border-surface-border px-4 py-2 text-sm font-semibold transition-all duration-700 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-surface-raised focus:outline-none focus:ring-2 focus:ring-brand focus:ring-offset-2 focus:ring-offset-black">
-              See the trust requirements
+            <h3 className="mt-5 text-xl font-semibold">The marketplace record is the source of truth</h3>
+            <p className="mx-auto mt-3 max-w-lg text-sm leading-6 text-muted">Open a listing to see the stable Marketplace ID, ERC 8004 identity, BSC telemetry, x402 price, job history, and the exact evidence needed before activation.</p>
+            <Link href="/agents" className="mt-6 inline-flex min-h-11 items-center gap-2 rounded-full border border-surface-border px-4 py-2 text-sm font-semibold transition-all duration-700 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-surface-raised focus:outline-none focus:ring-2 focus:ring-brand focus:ring-offset-2 focus:ring-offset-black">
+              Inspect full listings
               <CaretRight size={16} />
-            </a>
+            </Link>
           </div>
         </section>
 

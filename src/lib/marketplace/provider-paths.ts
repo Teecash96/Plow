@@ -1,3 +1,4 @@
 export const PROVIDER_EXECUTION_PATH = "/api/provider/execute";
 export const PROVIDER_HEALTH_PATH = "/api/provider/health";
 export const PROVIDER_METADATA_PATH = "/api/provider/metadata";
+export const PROVIDER_TELEMETRY_PATH = "/api/provider/telemetry";

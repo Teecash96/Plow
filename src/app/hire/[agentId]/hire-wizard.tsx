@@ -56,6 +56,7 @@ import {
 interface HireWizardProps {
   agent?: Agent;
   agentId: string;
+  initialCategory?: AgentCategory;
 }
 
 const STEPS = [
@@ -194,7 +195,7 @@ function TokenApprovalOption({
   );
 }
 
-export function HireWizard({ agent, agentId }: HireWizardProps) {
+export function HireWizard({ agent, agentId, initialCategory }: HireWizardProps) {
   const router = useRouter();
   const [step, setStep] = useState(0);
   const [task, setTask] = useState("");
@@ -217,6 +218,7 @@ export function HireWizard({ agent, agentId }: HireWizardProps) {
   const taskInputRef = useRef<HTMLTextAreaElement>(null);
   const [categorySelection, setCategorySelection] = useState<AgentCategory>(() => {
     const supported = getSupportedCategories(agent);
+    if (initialCategory && supported.includes(initialCategory)) return initialCategory;
     return (agent?.category !== "uncategorised" && agent && supported.includes(agent.category)
       ? agent.category
       : supported[0]) as AgentCategory;
@@ -230,6 +232,8 @@ export function HireWizard({ agent, agentId }: HireWizardProps) {
     ? "Example: monitor my lending position and alert below 1.2. Include account 0x... to monitor another wallet."
     : selectedCategory === "yield-optimisation"
       ? "Example: compare the configured yield routes and return current onchain share prices."
+      : selectedCategory === "grid-trading"
+        ? "Example: build a read only five level grid within plus or minus 5 percent of the current PancakeSwap spot price."
       : "Example: review this BSC liquidity position and return a range adjustment recommendation with the supporting evidence.";
   const currency = agent?.pricing.currency ?? "Configured token";
   const ercConfig = useMemo(() => getERC8183Config(), []);

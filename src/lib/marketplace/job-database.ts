@@ -3,6 +3,7 @@ import postgres from "postgres";
 import { isAddress } from "viem";
 import { assertPermissionAllows } from "./permission-policy";
 import { applyEscrowObservation, type EscrowObservation } from "./job-lifecycle";
+import { getJobProofEvents, type JobProofEvent } from "./job-proof";
 import type { FundMovingAction, Job, JobEscrow, JobExecution, JobReview, JobStatus, JobStatusChange, JobTerms, PaymentReceipt, SessionPermission } from "./types";
 
 const JOB_STATUSES = new Set<JobStatus>([
@@ -44,6 +45,7 @@ const PATCH_FIELDS = new Set([
   "resultUri",
   "resultSummary",
   "execution",
+  "publicProof",
 ]);
 
 const EXECUTION_LOCK_MS = 5 * 60 * 1000;
@@ -293,6 +295,7 @@ export function isJobRecord(value: unknown): value is Job {
     && (value.payment === undefined || isPayment(value.payment))
     && (value.execution === undefined || isJobExecution(value.execution))
     && (value.review === undefined || isJobReview(value.review))
+    && (value.publicProof === undefined || typeof value.publicProof === "boolean")
     && (value.fundMovingAction === undefined || isFundMovingAction(value.fundMovingAction))
     && (value.escrow === undefined || isJobEscrow(value.escrow));
 }
@@ -323,6 +326,7 @@ export function parseJobPatch(value: unknown): JobPatch | undefined {
   if (value.permission !== undefined && !isPermission(value.permission)) return undefined;
   if (value.payment !== undefined && !isPayment(value.payment)) return undefined;
   if (value.execution !== undefined && !isJobExecution(value.execution)) return undefined;
+  if (value.publicProof !== undefined && typeof value.publicProof !== "boolean") return undefined;
   if (value.escrow !== undefined) return undefined;
   if (value.onchainNetwork !== undefined && value.onchainNetwork !== "BSC Mainnet" && value.onchainNetwork !== "BSC Testnet") return undefined;
   if (value.onchainChainId !== undefined && value.onchainChainId !== 56 && value.onchainChainId !== 97) return undefined;
@@ -370,6 +374,72 @@ export async function getStoredJob(jobId: string, ownerToken: string) {
     return isJobRecord(job) ? job : undefined;
   } catch (error) {
     return rethrowDatabaseError(error);
+  }
+}
+
+export interface PublicJobProof {
+  id: string;
+  agentId: string;
+  agentIdentityId?: string;
+  agentName?: string;
+  category: string;
+  taskSummary: string;
+  status: JobStatus;
+  price: string;
+  currency: string;
+  createdAt: string;
+  updatedAt: string;
+  onchainNetwork?: Job["onchainNetwork"];
+  onchainChainId?: Job["onchainChainId"];
+  onchainJobId?: string;
+  jobContractAddress?: string;
+  termsHash?: string;
+  resultSummary: string;
+  executionCompletedAt?: string;
+  paymentTransactionHash?: string;
+  events: readonly JobProofEvent[];
+}
+
+export async function getPublicJobProof(jobId: string): Promise<PublicJobProof | undefined> {
+  if (!isJobPersistenceConfigured()) return undefined;
+
+  try {
+    const sql = getSql();
+    const rows = await sql<{ job: unknown }[]>`
+      SELECT job
+      FROM plow_jobs
+      WHERE id = ${jobId}
+      LIMIT 1
+    `;
+    const job = rows[0]?.job;
+    if (!isJobRecord(job) || !job.publicProof || job.mode === "simulation" || !job.onchainJobId || job.payment?.status !== "paid" || job.execution?.status !== "completed" || !job.resultSummary || job.status !== "completed" || job.escrow?.status !== "completed" || !job.escrow.settlementTransactionHash) {
+      return undefined;
+    }
+
+    return {
+      id: job.id,
+      agentId: job.agentId,
+      ...(job.agentIdentityId ? { agentIdentityId: job.agentIdentityId } : {}),
+      ...(job.agentName ? { agentName: job.agentName } : {}),
+      category: job.category,
+      taskSummary: job.taskSummary,
+      status: job.status,
+      price: job.price,
+      currency: job.currency,
+      createdAt: job.createdAt,
+      updatedAt: job.updatedAt,
+      ...(job.onchainNetwork ? { onchainNetwork: job.onchainNetwork } : {}),
+      ...(job.onchainChainId ? { onchainChainId: job.onchainChainId } : {}),
+      onchainJobId: job.onchainJobId,
+      ...(job.jobContractAddress ? { jobContractAddress: job.jobContractAddress } : {}),
+      ...(job.termsHash ?? job.terms.termsHash ? { termsHash: job.termsHash ?? job.terms.termsHash } : {}),
+      resultSummary: job.resultSummary,
+      ...(job.execution.completedAt ? { executionCompletedAt: job.execution.completedAt } : {}),
+      ...(job.payment.transactionHash ? { paymentTransactionHash: job.payment.transactionHash } : {}),
+      events: getJobProofEvents(job),
+    } satisfies PublicJobProof;
+  } catch {
+    return undefined;
   }
 }
 
@@ -546,7 +616,7 @@ export function validateNewStoredJob(job: Job) {
   if (job.escrow && job.escrow.status !== "open") {
     throw new JobMutationError("A new stored job must start with open escrow.");
   }
-  if (job.onchainJobId || job.execution || job.resultUri || job.resultSummary || job.payment?.status === "paid") {
+  if (job.publicProof || job.onchainJobId || job.execution || job.resultUri || job.resultSummary || job.payment?.status === "paid") {
     throw new JobMutationError("A new stored job cannot contain payment or execution results.");
   }
 }
@@ -558,6 +628,19 @@ export function validateJobPatch(currentJob: Job, patch: JobPatch) {
 
   if ("permission" in patch) validatePermissionRevocation(currentJob.permission, patch.permission);
   if ("payment" in patch) validatePaymentUpdate(currentJob.payment, patch.payment);
+
+  if (patch.publicProof === true && (
+    currentJob.mode === "simulation"
+    || !currentJob.onchainJobId
+    || currentJob.payment?.status !== "paid"
+    || currentJob.execution?.status !== "completed"
+    || !currentJob.resultSummary
+    || currentJob.status !== "completed"
+    || currentJob.escrow?.status !== "completed"
+    || !currentJob.escrow.settlementTransactionHash
+  )) {
+    throw new JobMutationError("Public proof unlocks only after a paid on chain execution is settled.");
+  }
 
   if ("statusHistory" in patch) {
     if (!patch.statusHistory || patch.statusHistory.length < currentJob.statusHistory.length) {

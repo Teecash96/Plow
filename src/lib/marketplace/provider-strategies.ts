@@ -83,6 +83,26 @@ export interface ProviderHealthFactorSnapshot {
   hasActiveDebt?: boolean;
 }
 
+export type MarketplaceTelemetryStatus = "live" | "partial" | "unavailable";
+
+export interface MarketplaceTelemetryMetric {
+  label: string;
+  value: string;
+  detail?: string;
+}
+
+export interface MarketplaceTelemetrySnapshot {
+  category: AgentCategory;
+  status: MarketplaceTelemetryStatus;
+  capturedAt: string;
+  blockNumber?: string;
+  blockHash?: Hex;
+  source: "BSC Mainnet RPC";
+  headline: string;
+  metrics: readonly MarketplaceTelemetryMetric[];
+  detail: string;
+}
+
 export interface ProviderTelemetryReader {
   readChainSnapshot(): Promise<BscChainSnapshot>;
   readPoolSnapshot(address: Address): Promise<ProviderPoolSnapshot>;
@@ -117,6 +137,42 @@ function shortError(error: unknown) {
 
 function safeSummary(value: string) {
   return value.replace(/[^\x20-\x7E]/g, " ").replace(/\s+/g, " ").trim().slice(0, MAX_SUMMARY_LENGTH);
+}
+
+function groupedInteger(value: string) {
+  try {
+    return BigInt(value).toLocaleString("en-US");
+  } catch {
+    return value;
+  }
+}
+
+function telemetryLabel(category: AgentCategory) {
+  if (category === "rebalancing") return "Rebalancing";
+  if (category === "grid-trading") return "Grid trading";
+  if (category === "yield-optimisation") return "Yield optimisation";
+  return "Health factor monitoring";
+}
+
+function telemetrySnapshot(
+  category: AgentCategory,
+  status: MarketplaceTelemetryStatus,
+  headline: string,
+  detail: string,
+  metrics: readonly MarketplaceTelemetryMetric[],
+  chain?: BscChainSnapshot,
+): MarketplaceTelemetrySnapshot {
+  return {
+    category,
+    status,
+    capturedAt: chain?.blockTimestamp ?? new Date().toISOString(),
+    ...(chain?.blockNumber ? { blockNumber: chain.blockNumber } : {}),
+    ...(chain?.blockHash ? { blockHash: chain.blockHash } : {}),
+    source: "BSC Mainnet RPC",
+    headline,
+    metrics,
+    detail,
+  };
 }
 
 function addressFromText(value: string | undefined, keywords: readonly string[]) {
@@ -360,18 +416,248 @@ async function readChainSnapshot(reader: ProviderTelemetryReader) {
   }
 }
 
-async function readConfiguredPool(reader: ProviderTelemetryReader, request: ProviderExecutionRequest) {
-  const address = configuredAddress(
+function configuredPoolAddress(taskSummary = "") {
+  return configuredAddress(
     "PLOW_PROVIDER_POOL_ADDRESS",
-    request.job.taskSummary,
+    taskSummary,
     ["pool", "pair", "market"],
   );
+}
+
+async function readConfiguredPool(reader: ProviderTelemetryReader, request: ProviderExecutionRequest) {
+  const address = configuredPoolAddress(request.job.taskSummary);
   if (!address) return undefined;
   try {
     return await reader.readPoolSnapshot(address);
   } catch (error) {
     throw new ProviderStrategyError(`The configured PancakeSwap pool could not be read. ${shortError(error)}`);
   }
+}
+
+async function buildPoolTelemetrySnapshot(
+  category: AgentCategory,
+  reader: ProviderTelemetryReader,
+  chain: BscChainSnapshot,
+) {
+  let address: Address | undefined;
+  try {
+    address = configuredPoolAddress();
+  } catch (error) {
+    return telemetrySnapshot(
+      category,
+      "unavailable",
+      `${telemetryLabel(category)} pool configuration is invalid`,
+      shortError(error),
+      [{ label: "BSC block", value: chain.blockNumber, detail: "Chain snapshot read successfully" }],
+      chain,
+    );
+  }
+
+  if (!address) {
+    return telemetrySnapshot(
+      category,
+      "partial",
+      `${telemetryLabel(category)} needs a configured PancakeSwap pool`,
+      "Set PLOW_PROVIDER_POOL_ADDRESS to show the live pair, spot price, tick, and liquidity. No trading transaction is attempted by this read.",
+      [
+        { label: "Pool", value: "Not configured", detail: "PLOW_PROVIDER_POOL_ADDRESS is missing" },
+        { label: "BSC block", value: chain.blockNumber, detail: "Chain snapshot read successfully" },
+      ],
+      chain,
+    );
+  }
+
+  try {
+    const pool = await reader.readPoolSnapshot(address);
+    const pair = `${pool.token0Symbol}/${pool.token1Symbol}`;
+    return telemetrySnapshot(
+      category,
+      "live",
+      `${pair} is readable on BSC Mainnet`,
+      `Read only PancakeSwap V3 state from ${pool.address}. This snapshot does not place an order or move funds.`,
+      [
+        { label: "Pool", value: pair, detail: pool.address },
+        { label: "Spot price", value: `${pool.spotPriceToken1PerToken0} ${pool.token1Symbol}/${pool.token0Symbol}`, detail: "Read from PancakeSwap V3 slot0" },
+        { label: "Current tick", value: String(pool.tick), detail: pool.feeTier ? `Fee tier ${pool.feeTier}` : "Fee tier not published by the pool" },
+        { label: "Liquidity", value: groupedInteger(pool.liquidity), detail: "PancakeSwap V3 liquidity units" },
+        { label: "BSC block", value: chain.blockNumber, detail: chain.blockTimestamp },
+      ],
+      chain,
+    );
+  } catch (error) {
+    return telemetrySnapshot(
+      category,
+      "unavailable",
+      "PancakeSwap pool telemetry is unavailable",
+      `The configured pool could not be read. ${shortError(error)}`,
+      [{ label: "Pool", value: address, detail: "Configured address" }, { label: "BSC block", value: chain.blockNumber }],
+      chain,
+    );
+  }
+}
+
+async function buildYieldTelemetrySnapshot(reader: ProviderTelemetryReader, chain: BscChainSnapshot) {
+  const configured = parseAddressList(envValue("PLOW_PROVIDER_YIELD_VAULTS") ?? envValue("PLOW_PROVIDER_YIELD_VAULT_ADDRESSES"));
+  if (configured.length === 0) {
+    return telemetrySnapshot(
+      "yield-optimisation",
+      "partial",
+      "Yield routes are not configured",
+      "Set PLOW_PROVIDER_YIELD_VAULTS to compare ERC 4626 or Beefy route state. APY is not asserted from assets per share.",
+      [
+        { label: "Routes read", value: "0", detail: "PLOW_PROVIDER_YIELD_VAULTS is missing or empty" },
+        { label: "BSC block", value: chain.blockNumber, detail: chain.blockTimestamp },
+      ],
+      chain,
+    );
+  }
+
+  const snapshots: ProviderYieldVaultSnapshot[] = [];
+  const failures: string[] = [];
+  for (const vault of configured) {
+    try {
+      snapshots.push(await reader.readYieldVaultSnapshot(vault.address, vault.name));
+    } catch (error) {
+      failures.push(`${vault.name}: ${shortError(error)}`);
+    }
+  }
+
+  if (snapshots.length === 0) {
+    return telemetrySnapshot(
+      "yield-optimisation",
+      "unavailable",
+      "No configured yield route could be read",
+      failures.join(" ") || "The configured routes returned no readable state.",
+      [{ label: "Routes read", value: `0/${configured.length}`, detail: "BSC Mainnet RPC" }, { label: "BSC block", value: chain.blockNumber }],
+      chain,
+    );
+  }
+
+  const top = [...snapshots].sort((left, right) => Number(right.assetsPerShare) - Number(left.assetsPerShare))[0];
+  const status = snapshots.length === configured.length ? "live" : "partial";
+  return telemetrySnapshot(
+    "yield-optimisation",
+    status,
+    `${snapshots.length} yield route${snapshots.length === 1 ? "" : "s"} readable on BSC Mainnet`,
+    `Routes are ranked by current assets per share within each underlying asset. This is not an APY calculation and does not predict returns.${failures.length ? ` Unreadable routes: ${failures.join(" ")}` : ""}`,
+    [
+      { label: "Routes read", value: `${snapshots.length}/${configured.length}`, detail: "ERC 4626 or Beefy contract reads" },
+      { label: "Top route", value: top.name, detail: `${top.assetSymbol} route` },
+      { label: "Assets per share", value: `${top.assetsPerShare} ${top.assetSymbol}`, detail: top.source ?? "Vault contract state" },
+      { label: "Total assets", value: `${top.totalAssets} ${top.assetSymbol}`, detail: top.address },
+      { label: "BSC block", value: chain.blockNumber, detail: chain.blockTimestamp },
+    ],
+    chain,
+  );
+}
+
+async function buildHealthTelemetrySnapshot(reader: ProviderTelemetryReader, chain: BscChainSnapshot) {
+  let poolAddress: Address | undefined;
+  let account: Address | undefined;
+  try {
+    poolAddress = configuredAddress("PLOW_PROVIDER_LENDING_POOL_ADDRESS", "", ["lending pool", "protocol pool"]);
+    account = envValue("PLOW_PROVIDER_HEALTH_ACCOUNT_ADDRESS") as Address | undefined;
+    if (account && !isAddress(account)) throw new ProviderStrategyError("PLOW_PROVIDER_HEALTH_ACCOUNT_ADDRESS is not a valid EVM address.", 409);
+  } catch (error) {
+    return telemetrySnapshot(
+      "health-factor-monitoring",
+      "unavailable",
+      "Health factor configuration is invalid",
+      shortError(error),
+      [{ label: "BSC block", value: chain.blockNumber }],
+      chain,
+    );
+  }
+
+  if (!poolAddress) {
+    return telemetrySnapshot(
+      "health-factor-monitoring",
+      "partial",
+      "Health monitoring needs a lending pool",
+      "Set PLOW_PROVIDER_LENDING_POOL_ADDRESS. A wallet or configured account is also required because health factor data is position specific.",
+      [
+        { label: "Position", value: "Not configured", detail: "No lending pool is published" },
+        { label: "BSC block", value: chain.blockNumber, detail: chain.blockTimestamp },
+      ],
+      chain,
+    );
+  }
+
+  if (!account) {
+    return telemetrySnapshot(
+      "health-factor-monitoring",
+      "partial",
+      "Health monitoring needs a wallet position",
+      "A public marketplace wall cannot use a visitor wallet. Connect a wallet during hiring or configure PLOW_PROVIDER_HEALTH_ACCOUNT_ADDRESS for a controlled read only monitor.",
+      [
+        { label: "Lending pool", value: poolAddress, detail: "Configured" },
+        { label: "Position", value: "Wallet required", detail: "No account is exposed in public telemetry" },
+        { label: "BSC block", value: chain.blockNumber, detail: chain.blockTimestamp },
+      ],
+      chain,
+    );
+  }
+
+  try {
+    const snapshot = await reader.readHealthFactorSnapshot(poolAddress, account);
+    return telemetrySnapshot(
+      "health-factor-monitoring",
+      "live",
+      snapshot.hasActiveDebt ? `Health factor ${snapshot.healthFactor} read on BSC Mainnet` : "Position has no active debt",
+      `Read only lending position state from ${snapshot.poolAddress}. The monitored account is intentionally not shown on the public marketplace surface.`,
+      [
+        { label: "Health factor", value: snapshot.healthFactor, detail: snapshot.hasActiveDebt ? "Protocol account data" : "Not applicable without active debt" },
+        { label: "Debt base", value: groupedInteger(snapshot.totalDebtBase), detail: "Protocol base units" },
+        { label: "Liquidation threshold", value: groupedInteger(snapshot.currentLiquidationThreshold), detail: "Protocol base units" },
+        { label: "Position", value: snapshot.hasActiveDebt ? "Active debt" : "No active debt", detail: "Read only" },
+        { label: "BSC block", value: chain.blockNumber, detail: chain.blockTimestamp },
+      ],
+      chain,
+    );
+  } catch (error) {
+    return telemetrySnapshot(
+      "health-factor-monitoring",
+      "unavailable",
+      "Lending position telemetry is unavailable",
+      `The configured lending pool did not return account data. ${shortError(error)}`,
+      [{ label: "Lending pool", value: poolAddress }, { label: "BSC block", value: chain.blockNumber }],
+      chain,
+    );
+  }
+}
+
+export async function buildProviderTelemetrySnapshot(
+  category: AgentCategory,
+  options: ProviderStrategyOptions = {},
+): Promise<MarketplaceTelemetrySnapshot> {
+  const supportedCategories = options.supportedCategories ?? AGENT_CATEGORIES;
+  if (!supportedCategories.includes(category)) {
+    return telemetrySnapshot(
+      category,
+      "unavailable",
+      `${telemetryLabel(category)} is not enabled for this provider`,
+      "The provider profile does not publish this category.",
+      [],
+    );
+  }
+
+  const reader = options.reader ?? createDefaultTelemetryReader();
+  let chain: BscChainSnapshot;
+  try {
+    chain = await readChainSnapshot(reader);
+  } catch (error) {
+    return telemetrySnapshot(
+      category,
+      "unavailable",
+      "BSC Mainnet telemetry is unavailable",
+      shortError(error),
+      [],
+    );
+  }
+
+  if (category === "yield-optimisation") return buildYieldTelemetrySnapshot(reader, chain);
+  if (category === "health-factor-monitoring") return buildHealthTelemetrySnapshot(reader, chain);
+  return buildPoolTelemetrySnapshot(category, reader, chain);
 }
 
 function poolDescription(pool: ProviderPoolSnapshot | undefined) {

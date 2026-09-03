@@ -35,6 +35,9 @@ function ratingDetail(agent: Agent) {
 
 export function AgentCard({ agent, selected = false, onToggleCompare }: AgentCardProps) {
   const category = getCategoryDefinition(agent.category);
+  const strategyCategories = agent.supportedCategories?.length
+    ? agent.supportedCategories
+    : agent.category === "uncategorised" ? [] : [agent.category];
   const primaryMetric = agent.categoryMetrics[0];
   const isHireable = isAgentHireable(agent);
   const isLiveVerified = agent.mode === "live" && agent.verified && agent.deployment.availability === "live";
@@ -58,6 +61,9 @@ export function AgentCard({ agent, selected = false, onToggleCompare }: AgentCar
             {agent.mode === "demo" ? <span className="inline-flex rounded-full border border-[#9a843c] bg-[#211d0d] px-2.5 py-1 text-xs font-semibold text-[#e8d995]">Demo fixture</span> : isLiveVerified ? <span className="inline-flex rounded-full border border-[#5a9876] bg-[#10261c] px-2.5 py-1 text-xs font-semibold text-positive">Live on BSC</span> : <span className="inline-flex rounded-full border border-[#9a843c] bg-[#211d0d] px-2.5 py-1 text-xs font-semibold text-warning">Registry candidate</span>}
             {agent.listingMode === "independent" ? <span className="inline-flex rounded-full border border-brand/50 bg-brand/10 px-2.5 py-1 text-xs font-semibold text-brand">Independent listing</span> : agent.supportedCategories && agent.supportedCategories.length > 1 ? <span className="inline-flex rounded-full border border-surface-border px-2.5 py-1 text-xs font-semibold text-muted">Shared multi strategy</span> : null}
           </div>
+          {strategyCategories.length > 1 ? <div className="mt-3 flex flex-wrap gap-1.5" aria-label="Strategy offering IDs">
+            {strategyCategories.map((strategyCategory) => <a key={strategyCategory} href={`/hire/${agent.slug}?category=${encodeURIComponent(strategyCategory)}`} className="rounded-full border border-surface-border px-2 py-1 font-mono text-[10px] text-muted hover:border-[#6a6a6a] hover:text-foreground">{strategyCategory} · plow-{agent.identity.agentId}-{strategyCategory}</a>)}
+          </div> : null}
         </div>
         {onToggleCompare ? (
           <button

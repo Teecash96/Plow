@@ -4,12 +4,12 @@ import { ERC8004_AGENT_REGISTRY } from "@/lib/chain/erc8004-contract";
 import { AGENT_EXECUTION_PROTOCOL, sameDecimal } from "./service-readiness";
 import { getCategoryDefinition } from "./categories";
 import { BSC_ERC8183_PAYMENT_CURRENCY } from "./payment-currency";
-import { PROVIDER_EXECUTION_PATH, PROVIDER_HEALTH_PATH, PROVIDER_METADATA_PATH } from "./provider-paths";
+import { PROVIDER_EXECUTION_PATH, PROVIDER_HEALTH_PATH, PROVIDER_METADATA_PATH, PROVIDER_TELEMETRY_PATH } from "./provider-paths";
 import { buildStaticProviderExecutionResult } from "./provider-strategies";
 import { AGENT_CATEGORIES, type AgentCategory } from "./types";
 
 export { AGENT_EXECUTION_PROTOCOL };
-export { PROVIDER_EXECUTION_PATH, PROVIDER_HEALTH_PATH, PROVIDER_METADATA_PATH } from "./provider-paths";
+export { PROVIDER_EXECUTION_PATH, PROVIDER_HEALTH_PATH, PROVIDER_METADATA_PATH, PROVIDER_TELEMETRY_PATH } from "./provider-paths";
 
 const MAX_AGENT_ID_LENGTH = 128;
 const MAX_JOB_ID_LENGTH = 256;
@@ -411,6 +411,10 @@ export function getProviderProfileMetadataUrl(config: ProviderServiceConfig, pro
   return scopedProfileEndpoint(endpointFromBase(config.publicBaseUrl, PROVIDER_METADATA_PATH), profile, config);
 }
 
+export function getProviderProfileTelemetryUrl(config: ProviderServiceConfig, profile: ProviderProfileConfig) {
+  return scopedProfileEndpoint(endpointFromBase(config.publicBaseUrl, PROVIDER_TELEMETRY_PATH), profile, config);
+}
+
 export function providerEndpointMatches(value: string, config = getProviderServiceConfig(), agentId?: string) {
   const candidate = normalisedEndpoint(value);
   if (!candidate) return false;
@@ -623,6 +627,8 @@ export function buildProviderRegistrationMetadata(
     ?? endpointFromBase(config.publicBaseUrl, PROVIDER_EXECUTION_PATH);
   const healthEndpoint = getProviderProfileHealthUrl(config, profile)
     ?? endpointFromBase(config.publicBaseUrl, PROVIDER_HEALTH_PATH);
+  const telemetryEndpoint = getProviderProfileTelemetryUrl(config, profile)
+    ?? endpointFromBase(config.publicBaseUrl, PROVIDER_TELEMETRY_PATH);
   if (!executionEndpoint || !healthEndpoint) return undefined;
 
   return {
@@ -651,6 +657,7 @@ export function buildProviderRegistrationMetadata(
         category: profile.supportedCategories.length === 1 ? profile.supportedCategories[0] : undefined,
       },
       health: { endpoint: healthEndpoint },
+      telemetry: telemetryEndpoint ? { endpoint: telemetryEndpoint } : undefined,
       x402: {
         supported: true,
         amount: profile.price,

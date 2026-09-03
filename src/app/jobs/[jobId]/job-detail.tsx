@@ -18,7 +18,7 @@ import { AltanaPermissionPanel } from "@/components/partners/altana-permission-p
 import { PancakeSwapRebalanceAction } from "@/components/partners/pancakeswap-rebalance-action";
 import { getCategoryDefinition } from "@/lib/marketplace/categories";
 import { getHireResumeMode } from "@/lib/marketplace/hire-resume";
-import { evaluateRemoteJob, getRemoteJob, JobPersistenceUnavailableError, recoverRemoteFunding, reconcileRemoteJob, submitRemoteJobReview } from "@/lib/marketplace/job-api";
+import { evaluateRemoteJob, getRemoteJob, JobPersistenceUnavailableError, recoverRemoteFunding, reconcileRemoteJob, submitRemoteJobReview, updateRemoteJob } from "@/lib/marketplace/job-api";
 import { getLocalJob, updateLocalJob } from "@/lib/marketplace/job-store";
 import { getHireSetupStatus } from "@/lib/marketplace/hire-setup";
 import { evaluatorRefreshDelay, type JobEvaluatorResult } from "@/lib/marketplace/evaluator";
@@ -62,6 +62,8 @@ export function JobDetail({ jobId }: { jobId: string }) {
   const [evaluationError, setEvaluationError] = useState<string>();
   const [reviewBusy, setReviewBusy] = useState(false);
   const [reviewError, setReviewError] = useState<string>();
+  const [publicProofBusy, setPublicProofBusy] = useState(false);
+  const [publicProofError, setPublicProofError] = useState<string>();
   const evaluationRequestId = useRef(0);
 
   const loadEvaluator = useCallback(async (targetJobId: string) => {
@@ -185,6 +187,21 @@ export function JobDetail({ jobId }: { jobId: string }) {
     }
   }
 
+  async function togglePublicProof() {
+    if (!job || publicProofBusy) return;
+    setPublicProofBusy(true);
+    setPublicProofError(undefined);
+    try {
+      const updated = await updateRemoteJob(job.id, { publicProof: !job.publicProof });
+      updateLocalJob(job.id, updated);
+      setJob(updated);
+    } catch (error) {
+      setPublicProofError(error instanceof Error ? error.message : "The public proof setting could not be updated.");
+    } finally {
+      setPublicProofBusy(false);
+    }
+  }
+
   async function runLifecycleAction(action: "dispute" | "settle" | "refund") {
     if (!job || lifecycleBusy || !job.onchainJobId || !job.permission) return;
     setLifecycleBusy(action);
@@ -238,14 +255,14 @@ export function JobDetail({ jobId }: { jobId: string }) {
       </header>
 
       <main className="mx-auto max-w-7xl px-4 pb-28 pt-10 sm:px-6 sm:pt-12 lg:pt-20">
-        {!(ready && loadedJobId === jobId) ? <div className="rounded-3xl border border-surface-border bg-surface px-6 py-16 text-center"><h1 className="text-2xl font-semibold">Loading job</h1><p className="mt-2 text-sm text-muted">Checking the saved job record.</p></div> : !job ? <EmptyState title="Job not found" description="No matching server record or local draft is available for this job ID." actionLabel="Back to jobs" actionHref="/jobs" /> : <JobContent job={job} onJobChange={setJob} onExecute={executeJob} executionBusy={executionBusy} executionError={executionError} onRecoverFunding={recoverFunding} fundingRecoveryBusy={fundingRecoveryBusy} fundingRecoveryError={fundingRecoveryError} onLifecycleAction={runLifecycleAction} lifecycleBusy={lifecycleBusy} lifecycleError={lifecycleError} evaluation={evaluation} evaluationBusy={evaluationBusy} evaluationError={evaluationError} onRefreshEvaluation={() => { if (job) void loadEvaluator(job.id).catch(() => undefined); }} onReviewSubmit={submitReview} reviewBusy={reviewBusy} reviewError={reviewError} />}
+        {!(ready && loadedJobId === jobId) ? <div className="rounded-3xl border border-surface-border bg-surface px-6 py-16 text-center"><h1 className="text-2xl font-semibold">Loading job</h1><p className="mt-2 text-sm text-muted">Checking the saved job record.</p></div> : !job ? <EmptyState title="Job not found" description="No matching server record or local draft is available for this job ID." actionLabel="Back to jobs" actionHref="/jobs" /> : <JobContent job={job} onJobChange={setJob} onExecute={executeJob} executionBusy={executionBusy} executionError={executionError} onRecoverFunding={recoverFunding} fundingRecoveryBusy={fundingRecoveryBusy} fundingRecoveryError={fundingRecoveryError} onLifecycleAction={runLifecycleAction} lifecycleBusy={lifecycleBusy} lifecycleError={lifecycleError} evaluation={evaluation} evaluationBusy={evaluationBusy} evaluationError={evaluationError} onRefreshEvaluation={() => { if (job) void loadEvaluator(job.id).catch(() => undefined); }} onReviewSubmit={submitReview} reviewBusy={reviewBusy} reviewError={reviewError} onTogglePublicProof={togglePublicProof} publicProofBusy={publicProofBusy} publicProofError={publicProofError} />}
         {storageNotice ? <p className="mt-4 text-sm leading-6 text-warning">{storageNotice}</p> : null}
       </main>
     </div>
   );
 }
 
-function JobContent({ job, onJobChange, onExecute, executionBusy, executionError, onRecoverFunding, fundingRecoveryBusy, fundingRecoveryError, onLifecycleAction, lifecycleBusy, lifecycleError, evaluation, evaluationBusy, evaluationError, onRefreshEvaluation, onReviewSubmit, reviewBusy, reviewError }: { job: Job; onJobChange: (job: Job) => void; onExecute: () => void; executionBusy: boolean; executionError?: string; onRecoverFunding: () => void; fundingRecoveryBusy: boolean; fundingRecoveryError?: string; onLifecycleAction: (action: "dispute" | "settle" | "refund") => void; lifecycleBusy?: string; lifecycleError?: string; evaluation?: JobEvaluatorResult; evaluationBusy: boolean; evaluationError?: string; onRefreshEvaluation: () => void; onReviewSubmit: (score: number, comment: string) => void; reviewBusy: boolean; reviewError?: string }) {
+function JobContent({ job, onJobChange, onExecute, executionBusy, executionError, onRecoverFunding, fundingRecoveryBusy, fundingRecoveryError, onLifecycleAction, lifecycleBusy, lifecycleError, evaluation, evaluationBusy, evaluationError, onRefreshEvaluation, onReviewSubmit, reviewBusy, reviewError, onTogglePublicProof, publicProofBusy, publicProofError }: { job: Job; onJobChange: (job: Job) => void; onExecute: () => void; executionBusy: boolean; executionError?: string; onRecoverFunding: () => void; fundingRecoveryBusy: boolean; fundingRecoveryError?: string; onLifecycleAction: (action: "dispute" | "settle" | "refund") => void; lifecycleBusy?: string; lifecycleError?: string; evaluation?: JobEvaluatorResult; evaluationBusy: boolean; evaluationError?: string; onRefreshEvaluation: () => void; onReviewSubmit: (score: number, comment: string) => void; reviewBusy: boolean; reviewError?: string; onTogglePublicProof: () => void; publicProofBusy: boolean; publicProofError?: string }) {
   const [currentTime, setCurrentTime] = useState(0);
   const [reviewScore, setReviewScore] = useState<number>();
   const [reviewComment, setReviewComment] = useState("");
@@ -277,6 +294,14 @@ function JobContent({ job, onJobChange, onExecute, executionBusy, executionError
     && Date.parse(job.escrow?.expiresAt ?? "") <= currentTime;
   const canResume = job.mode !== "simulation"
     && Boolean(getHireResumeMode(job));
+  const canPublishProof = job.mode !== "simulation"
+    && Boolean(job.onchainJobId)
+    && job.payment?.status === "paid"
+    && job.execution?.status === "completed"
+    && Boolean(job.resultSummary)
+    && job.status === "completed"
+    && job.escrow?.status === "completed"
+    && Boolean(job.escrow.settlementTransactionHash);
   const pendingFundingHash = job.escrow?.pendingFundingTransactionHash;
   return (
     <>
@@ -331,6 +356,25 @@ function JobContent({ job, onJobChange, onExecute, executionBusy, executionError
       {job.category === "rebalancing" && job.mode !== "simulation" ? <PancakeSwapRebalanceAction job={job} onJobChange={onJobChange} /> : null}
 
       <JobProofTimeline job={job} />
+
+      {job.mode !== "simulation" ? <section className="mt-12 rounded-3xl border border-surface-border bg-surface p-6 sm:p-8" aria-labelledby="public-proof-heading">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className="font-mono text-xs uppercase tracking-[0.16em] text-brand">Public evidence</p>
+            <h2 id="public-proof-heading" className="mt-3 text-2xl font-semibold">Share one complete run</h2>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-muted">Publish this record only after a paid on chain execution is settled. The public page includes the task, result, identity, payment reference, and escrow transactions. It excludes the client wallet address.</p>
+          </div>
+          <span className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${job.publicProof ? "border-[#5a9876] bg-[#14281f] text-positive" : "border-surface-border bg-black text-muted"}`}>{job.publicProof ? "Public" : "Private"}</span>
+        </div>
+        <div className="mt-5 flex flex-wrap items-center gap-3">
+          {job.publicProof ? <>
+            <Link href={`/proof/${encodeURIComponent(job.id)}`} target="_blank" className="inline-flex min-h-11 items-center justify-center rounded-full bg-brand px-4 py-2 text-sm font-semibold text-black hover:bg-[#ffd34f] focus:outline-none focus:ring-2 focus:ring-brand">Open public proof</Link>
+            <button type="button" onClick={onTogglePublicProof} disabled={publicProofBusy} className="inline-flex min-h-11 items-center justify-center rounded-full border border-surface-border px-4 py-2 text-sm font-semibold text-muted hover:border-[#6a6a6a] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-brand">{publicProofBusy ? "Updating" : "Make private"}</button>
+          </> : <button type="button" onClick={onTogglePublicProof} disabled={!canPublishProof || publicProofBusy} title={!canPublishProof ? "Complete a paid on chain execution before publishing proof" : undefined} className="inline-flex min-h-11 items-center justify-center rounded-full bg-brand px-4 py-2 text-sm font-semibold text-black hover:bg-[#ffd34f] disabled:cursor-not-allowed disabled:bg-[#5a5230] disabled:text-[#b9ae7b] focus:outline-none focus:ring-2 focus:ring-brand">{publicProofBusy ? "Publishing" : "Publish public proof"}</button>}
+          <p className="text-xs leading-5 text-muted">{canPublishProof ? "You control this sharing decision." : "Available after payment, execution, result submission, and settlement are verified."}</p>
+        </div>
+        {publicProofError ? <p className="mt-4 text-sm leading-6 text-warning" role="alert">{publicProofError}</p> : null}
+      </section> : null}
 
       <section className="mt-12 grid gap-4 lg:grid-cols-2">
         <div className="rounded-3xl border border-surface-border bg-surface p-6">

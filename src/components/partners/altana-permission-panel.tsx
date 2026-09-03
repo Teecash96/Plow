@@ -78,7 +78,7 @@ export function AltanaPermissionPanel({ permission, jobId, mode = "preview" }: A
         <div className="flex items-center gap-3">
           <span className="flex size-10 items-center justify-center rounded-2xl bg-black text-brand"><LockKey size={21} /></span>
           <div>
-            <p className="font-mono text-xs uppercase tracking-[0.14em] text-brand">Altana permissions</p>
+            <p className="font-mono text-xs uppercase tracking-[0.14em] text-brand">Altana readiness</p>
             <h2 id="altana-permissions-heading" className="mt-2 text-2xl font-semibold">Bounded execution scope</h2>
           </div>
         </div>
@@ -107,9 +107,22 @@ export function AltanaPermissionPanel({ permission, jobId, mode = "preview" }: A
             </div>
           </div>
 
+          <div className="mt-5 grid gap-3 sm:grid-cols-2">
+            <div className="rounded-2xl border border-[#9a843c] bg-[#211d0d] p-4">
+              <p className="text-xs text-[#e8d995]">Altana Keystore session</p>
+              <p className="mt-2 text-sm font-semibold text-[#e8d995]">Not connected</p>
+              <p className="mt-1 text-xs leading-5 text-[#e8d995]">No Altana session key or registration transaction is attached.</p>
+            </div>
+            <div className="rounded-2xl border border-[#9a843c] bg-[#211d0d] p-4">
+              <p className="text-xs text-[#e8d995]">On chain revoke</p>
+              <p className="mt-2 text-sm font-semibold text-[#e8d995]">Not connected</p>
+              <p className="mt-1 text-xs leading-5 text-[#e8d995]">The button below records a Plow policy revoke only.</p>
+            </div>
+          </div>
+
           <div className="mt-5 flex items-start gap-2 rounded-2xl border border-surface-border bg-black px-4 py-3 text-xs leading-5 text-muted">
             <ShieldCheck size={16} className="mt-0.5 shrink-0 text-brand" />
-            <span>{mode === "job" ? "Plow enforces this policy before wallet transactions and agent execution. It is not an Altana session key." : "Draft only. Live submission activates Plow policy checks before any wallet transaction."}</span>
+            <span>{mode === "job" ? "Plow enforces this policy before wallet transactions and agent execution. It is not an Altana session key and it has no Altana transaction hash." : "Draft only. Live submission activates Plow policy checks before any wallet transaction. Altana Keystore registration is not performed by this UI."}</span>
           </div>
 
           <div className="mt-5 flex flex-wrap items-center justify-between gap-3">

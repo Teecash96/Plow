@@ -53,6 +53,23 @@ test("allows only an explicit permission revocation", () => {
   })).not.toThrow();
 });
 
+test("allows public proof only after paid execution and settlement", () => {
+  expect(() => validateJobPatch(job, { publicProof: true })).toThrow("paid on chain execution is settled");
+
+  const settledJob: Job = {
+    ...job,
+    status: "completed",
+    onchainJobId: "7",
+    payment: { protocol: "x402", status: "paid", amount: "1", currency: "USDC", transactionHash: `0x${"11".repeat(32)}` },
+    execution: { status: "completed", attempt: 1, startedAt: "2026-08-31T01:00:00.000Z", completedAt: "2026-08-31T01:01:00.000Z" },
+    resultSummary: "A bounded result.",
+    escrow: { status: "completed", settlementTransactionHash: `0x${"22".repeat(32)}` },
+  };
+
+  expect(() => validateJobPatch(settledJob, { publicProof: true })).not.toThrow();
+  expect(parseJobPatch({ publicProof: "yes" })).toBeUndefined();
+});
+
 test("does not allow public patches to advance escrow state", () => {
   expect(() => validateJobPatch(job, { status: "active" })).toThrow("managed by the server");
   expect(() => validateJobPatch(job, { status: "submitted" })).toThrow("managed by the server");

@@ -16,10 +16,12 @@ import { PancakeSwapEvidencePanel } from "@/components/partners/pancakeswap-evid
 import { TermiXReportPanel } from "@/components/partners/terminx-report-panel";
 import { getCategoryDefinition } from "@/lib/marketplace/categories";
 import { isAgentHireable, type Agent } from "@/lib/marketplace/types";
+import type { MarketplaceTelemetrySnapshot } from "@/lib/marketplace/provider-strategies";
 
 interface AgentDetailProps {
   agent?: Agent;
   agentId: string;
+  telemetry?: readonly MarketplaceTelemetrySnapshot[];
 }
 
 function valueOrPending(value?: string | number) {
@@ -68,7 +70,18 @@ function PlaceholderPanel({ title, description, icon: Icon }: { title: string; d
   );
 }
 
-export function AgentDetail({ agent, agentId }: AgentDetailProps) {
+function telemetryStatusClass(status: MarketplaceTelemetrySnapshot["status"]) {
+  if (status === "live") return "border-[#5a9876] bg-[#10261c] text-positive";
+  if (status === "partial") return "border-[#9a843c] bg-[#211d0d] text-[#e8d995]";
+  return "border-surface-border bg-black text-muted";
+}
+
+function formatTelemetryCapture(value: string) {
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? `${new Date(timestamp).toISOString().slice(0, 16).replace("T", " ")} UTC` : value;
+}
+
+export function AgentDetail({ agent, agentId, telemetry = [] }: AgentDetailProps) {
   const category = agent ? getCategoryDefinition(agent.category) : undefined;
   const metricLabels = category?.metricLabels ?? ["Primary category metric", "Risk context", "Execution evidence"];
   const isHireable = isAgentHireable(agent);
@@ -104,6 +117,7 @@ export function AgentDetail({ agent, agentId }: AgentDetailProps) {
             <h1 className="mt-4 break-words text-4xl font-semibold leading-none tracking-tight text-wrap-balance sm:text-6xl">{agent?.name ?? `Agent ${agentId}`}</h1>
             <p className="mt-5 max-w-2xl text-lg leading-7 text-muted text-wrap-pretty">{agent?.description ?? "This agent profile is ready for an identity, deployment record, category metrics, and evidence sources."}</p>
             {agent ? <p className="mt-5 break-all font-mono text-xs text-muted">Marketplace ID · {agent.id}</p> : null}
+            {agent?.listingMode === "shared" && agent.supportedCategories && agent.supportedCategories.length > 1 ? <p className="mt-3 text-sm text-brand">Shared agent with {agent.supportedCategories.length} strategy services. Each service has its own Plow listing ID and job IDs are generated after activation.</p> : null}
           </div>
           <div className="rounded-3xl border border-surface-border bg-surface p-5">
             <p className="text-xs text-muted">Profile readiness</p>
@@ -166,6 +180,40 @@ export function AgentDetail({ agent, agentId }: AgentDetailProps) {
             </div>
           </div>
         </section>
+
+        {telemetry.length > 0 ? (
+          <section className="mt-16" aria-labelledby="telemetry-heading">
+            <div className="flex flex-wrap items-end justify-between gap-4">
+              <div>
+                <p className="font-mono text-xs uppercase tracking-[0.16em] text-brand">Live strategy telemetry</p>
+                <h2 id="telemetry-heading" className="mt-3 text-3xl font-semibold tracking-tight">Current BSC state for every service</h2>
+                <p className="mt-4 max-w-3xl text-base leading-6 text-muted">These are read only Mainnet snapshots. They show what the provider can read now. They are not historical performance claims and they do not move funds.</p>
+              </div>
+            </div>
+            <div className="mt-8 grid gap-4 md:grid-cols-2">
+              {telemetry.map((snapshot) => {
+                const snapshotCategory = getCategoryDefinition(snapshot.category);
+                return (
+                  <article key={snapshot.category} className="rounded-3xl border border-surface-border bg-surface p-5">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <p className="font-mono text-xs uppercase tracking-[0.14em] text-brand">{snapshotCategory?.label ?? snapshot.category}</p>
+                        <h3 className="mt-2 text-xl font-semibold">{snapshot.headline}</h3>
+                      </div>
+                      <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold capitalize ${telemetryStatusClass(snapshot.status)}`}>{snapshot.status}</span>
+                    </div>
+                    <p className="mt-3 text-sm leading-6 text-muted">{snapshot.detail}</p>
+                    {snapshot.metrics.length > 0 ? <dl className="mt-5 grid gap-3 sm:grid-cols-2">
+                      {snapshot.metrics.slice(0, 4).map((metric) => <div key={`${snapshot.category}-${metric.label}`} className="rounded-2xl border border-surface-border bg-black p-3"><dt className="text-xs text-muted">{metric.label}</dt><dd className="mt-2 break-words text-sm font-semibold">{metric.value}</dd>{metric.detail ? <dd className="mt-1 break-words text-[11px] leading-4 text-muted">{metric.detail}</dd> : null}</div>)}
+                    </dl> : null}
+                    <p className="mt-5 border-t border-surface-border pt-4 font-mono text-xs text-muted">{snapshot.blockNumber ? `BSC block ${snapshot.blockNumber} · ` : ""}{formatTelemetryCapture(snapshot.capturedAt)} · {snapshot.source}</p>
+                    {agent?.slug ? <Link href={`/hire/${encodeURIComponent(agent.slug)}?category=${encodeURIComponent(snapshot.category)}`} className="mt-4 inline-flex min-h-11 items-center rounded-full border border-surface-border px-4 py-2 text-sm font-semibold text-muted hover:border-[#6a6a6a] hover:bg-black hover:text-foreground focus:outline-none focus:ring-2 focus:ring-brand">Open this strategy</Link> : null}
+                  </article>
+                );
+              })}
+            </div>
+          </section>
+        ) : null}
 
         <section className="mt-16" aria-labelledby="classification-heading">
             <p className="font-mono text-xs uppercase tracking-[0.16em] text-brand">Category classification</p>
