@@ -11,6 +11,7 @@ import {
 } from "@phosphor-icons/react";
 import { getCategoryDefinition } from "@/lib/marketplace/categories";
 import { isAgentHireable, type Agent, type AgentCategory } from "@/lib/marketplace/types";
+import { AgentAvatar } from "./agent-avatar";
 
 interface AgentCardProps {
   agent: Agent;
@@ -45,7 +46,8 @@ export function AgentCard({ agent, selected = false, onToggleCompare }: AgentCar
   return (
     <article className="group flex min-h-[30rem] flex-col rounded-3xl border border-surface-border bg-surface p-4 transition-all duration-700 ease-[cubic-bezier(0.32,0.72,0,1)] hover:-translate-y-1 hover:border-[#6a6a6a] hover:bg-surface-raised sm:p-5">
       <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
+        <AgentAvatar agent={agent} />
+        <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
             <span className={`inline-flex items-center gap-1.5 ${agent.verified ? "text-positive" : "text-warning"}`}>
               {agent.verified ? <CheckCircle size={14} weight="fill" /> : <Fingerprint size={14} />}

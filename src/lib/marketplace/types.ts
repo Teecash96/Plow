@@ -13,6 +13,12 @@ export type AgentMode = "demo" | "live";
 export type AgentListingMode = "shared" | "independent";
 export type FreshnessState = "fresh" | "stale" | "unknown";
 
+export interface AgentAvatar {
+  src: string;
+  alt: string;
+  initials: string;
+}
+
 export type EvidenceKind =
   | "identity"
   | "performance"
@@ -231,6 +237,7 @@ export interface Agent {
   listingId?: string;
   providerName?: string;
   parentAgentId?: string;
+  avatar?: AgentAvatar;
   name: string;
   tagline: string;
   mode: AgentMode;

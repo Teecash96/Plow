@@ -130,7 +130,7 @@ test("returns a fresh heartbeat and publishable metadata", async () => {
       x402: { supported: true, amount: "0.25", currency: "USDC" },
       },
   });
-  expect(metadataBody.services[0]).toMatchObject({ protocol: AGENT_EXECUTION_PROTOCOL, endpoint: "https://provider.example/api/provider/execute" });
+  expect(metadataBody.services[0]).toMatchObject({ protocol: AGENT_EXECUTION_PROTOCOL, endpoint: "https://provider.example/api/provider/execute", image: "/agents/range-steward.svg" });
   expect(metadataBody.services).toHaveLength(4);
   expect(metadataBody.services.map((service: { listingId: string }) => service.listingId)).toEqual([
     getProviderServiceListingId("42", "rebalancing"),
@@ -139,6 +139,12 @@ test("returns a fresh heartbeat and publishable metadata", async () => {
     getProviderServiceListingId("42", "health-factor-monitoring"),
   ]);
   expect(metadataBody.plow.listings).toHaveLength(4);
+  expect(metadataBody.plow.listings.map((listing: { image: string }) => listing.image)).toEqual([
+    "/agents/range-steward.svg",
+    "/agents/grid-pilot.svg",
+    "/agents/yield-scout.svg",
+    "/agents/health-sentinel.svg",
+  ]);
 });
 
 test("health identifies the selected category listing", async () => {

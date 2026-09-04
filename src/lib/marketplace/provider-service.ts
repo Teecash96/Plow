@@ -2,10 +2,10 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import type { Address, Hex } from "viem";
 import { ERC8004_AGENT_REGISTRY } from "@/lib/chain/erc8004-contract";
 import { AGENT_EXECUTION_PROTOCOL, sameDecimal } from "./service-readiness";
-import { getCategoryDefinition } from "./categories";
 import { BSC_ERC8183_PAYMENT_CURRENCY } from "./payment-currency";
 import { PROVIDER_EXECUTION_PATH, PROVIDER_HEALTH_PATH, PROVIDER_METADATA_PATH, PROVIDER_TELEMETRY_PATH } from "./provider-paths";
 import { buildStaticProviderExecutionResult } from "./provider-strategies";
+import { PROVIDER_AGENT_BRANDING } from "./agent-branding";
 import { AGENT_CATEGORIES, type AgentCategory } from "./types";
 
 export { AGENT_EXECUTION_PROTOCOL };
@@ -642,7 +642,9 @@ export function buildProviderRegistrationMetadata(
   if (!executionEndpoint || !healthEndpoint) return undefined;
 
   const services = profile.supportedCategories.map((category) => ({
-    name: `${getCategoryDefinition(category)?.label ?? category} service`,
+    name: PROVIDER_AGENT_BRANDING[category].name,
+    description: PROVIDER_AGENT_BRANDING[category].description,
+    image: PROVIDER_AGENT_BRANDING[category].avatar.src,
     protocol: AGENT_EXECUTION_PROTOCOL,
     endpoint: executionEndpoint,
     category,
@@ -650,7 +652,9 @@ export function buildProviderRegistrationMetadata(
   }));
   const listings = profile.supportedCategories.map((category) => ({
     id: getProviderServiceListingId(profile.agentId, category),
-    name: getCategoryDefinition(category)?.label ?? category,
+    name: PROVIDER_AGENT_BRANDING[category].name,
+    description: PROVIDER_AGENT_BRANDING[category].description,
+    image: PROVIDER_AGENT_BRANDING[category].avatar.src,
     category,
     providerAgentId: profile.agentId,
     executionEndpoint,
@@ -695,7 +699,9 @@ export function buildProviderRegistrationMetadata(
       strategies: profile.supportedCategories.map((category) => ({
         id: category,
         listingId: getProviderServiceListingId(profile.agentId, category),
-        name: getCategoryDefinition(category)?.label ?? category,
+        name: PROVIDER_AGENT_BRANDING[category].name,
+        description: PROVIDER_AGENT_BRANDING[category].description,
+        image: PROVIDER_AGENT_BRANDING[category].avatar.src,
         mode: "read-only analysis",
         dataSource: "BSC Mainnet RPC",
       })),

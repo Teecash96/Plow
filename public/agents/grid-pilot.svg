@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">Grid Pilot avatar</title>
+  <desc id="desc">A structured grid with a highlighted route.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#101f2a"/><stop offset="1" stop-color="#0a0c0e"/></linearGradient>
+    <linearGradient id="cyan" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#66e6ff"/><stop offset="1" stop-color="#2588ff"/></linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="72" fill="url(#bg)"/>
+  <g stroke="#31506a" stroke-width="6"><path d="M58 64v128M99 64v128M140 64v128M181 64v128M48 76h160M48 117h160M48 158h160M48 199h160"/></g>
+  <path d="M58 158l41-41 41 41 41-82" fill="none" stroke="url(#cyan)" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="181" cy="76" r="12" fill="#66e6ff"/>
+</svg>

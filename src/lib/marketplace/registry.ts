@@ -15,6 +15,7 @@ import {
 } from "./provider-service";
 import { getProviderSignerStatus } from "./provider-submission";
 import { BSC_ERC8183_PAYMENT_CURRENCY } from "./payment-currency";
+import { PROVIDER_AGENT_BRANDING } from "./agent-branding";
 import {
   assessAgentServiceReadiness,
   parseAgentHeartbeatResponse,
@@ -320,13 +321,6 @@ function mapLiveRecord(
   };
 }
 
-const PROVIDER_SERVICE_NAMES: Record<AgentCategory, string> = {
-  rebalancing: "Range Steward",
-  "grid-trading": "Grid Pilot",
-  "yield-optimisation": "Yield Scout",
-  "health-factor-monitoring": "Health Sentinel",
-};
-
 function serviceCategoryEvidence(category: AgentCategory) {
   const definition = CATEGORY_DEFINITIONS.find((candidate) => candidate.id === category);
   return {
@@ -460,6 +454,7 @@ export async function buildProviderServiceListing(
     ...(parent.identity.endpoints ?? []),
     ...(executionEndpoint ? [executionEndpoint] : []),
   ])];
+  const branding = PROVIDER_AGENT_BRANDING[category];
 
   return {
     ...parent,
@@ -468,14 +463,15 @@ export async function buildProviderServiceListing(
     listingId,
     providerName: profile.name,
     parentAgentId: parent.id,
-    name: PROVIDER_SERVICE_NAMES[category],
-    tagline: `Live ${definition?.label ?? category} service with BSC Mainnet telemetry and paid job execution.`,
+    avatar: branding.avatar,
+    name: branding.name,
+    tagline: branding.tagline,
     listingMode: config.profileMode ? "independent" as const : "shared" as const,
     category,
     supportedCategories: [category],
     categorySource: "metadata" as const,
     categoryEvidence: serviceCategoryEvidence(category),
-    description: `${definition?.description ?? "A provider service for this marketplace category."} This is a dedicated Plow service listing operated by ${profile.name} under ERC 8004 identity ${profile.agentId}. It accepts a paid ERC 8183 job and returns a bounded result from the published provider endpoint.`,
+    description: `${branding.description} This is a dedicated Plow service listing operated by ${profile.name} under ERC 8004 identity ${profile.agentId}. It accepts a paid ERC 8183 job and returns a bounded result from the published provider endpoint.`,
     identity: {
       ...parent.identity,
       serviceUri: executionEndpoint,

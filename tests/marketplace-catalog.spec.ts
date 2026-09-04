@@ -23,6 +23,14 @@ test("a shared provider publishes one explicit marketplace listing per category"
   expect(new Set(listings.map((listing) => listing.id)).size).toBe(AGENT_CATEGORIES.length);
   expect(new Set(listings.map((listing) => listing.identity.agentId)).size).toBe(1);
   expect(listings.map((listing) => listing.name)).toEqual(["Range Steward", "Grid Pilot", "Yield Scout", "Health Sentinel"]);
+  expect(listings.map((listing) => listing.avatar?.src)).toEqual([
+    "/agents/range-steward.svg",
+    "/agents/grid-pilot.svg",
+    "/agents/yield-scout.svg",
+    "/agents/health-sentinel.svg",
+  ]);
+  expect(listings.every((listing) => listing.avatar?.alt && listing.avatar?.initials)).toBe(true);
+  expect(listings.every((listing) => listing.description.length > 80)).toBe(true);
   expect(listings.every((listing, index) => listing.category === AGENT_CATEGORIES[index] && listing.supportedCategories?.length === 1 && listing.supportedCategories[0] === AGENT_CATEGORIES[index])).toBe(true);
   expect(listings.every((listing) => listing.providerName === profile.name && listing.listingMode === "shared")).toBe(true);
 });

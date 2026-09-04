@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">Health Sentinel avatar</title>
+  <desc id="desc">A shield with a health monitoring pulse.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#281415"/><stop offset="1" stop-color="#0d0b0c"/></linearGradient>
+    <linearGradient id="red" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#ff9a7a"/><stop offset="1" stop-color="#e04e68"/></linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="72" fill="url(#bg)"/>
+  <path d="M128 42 193 68v49c0 42-27 75-65 96-38-21-65-54-65-96V68l65-26Z" fill="#301b20" stroke="url(#red)" stroke-width="10" stroke-linejoin="round"/>
+  <path d="M78 132h25l13-28 20 54 16-35 10 9h25" fill="none" stroke="#ffcf9b" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

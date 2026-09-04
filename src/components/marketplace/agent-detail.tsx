@@ -11,6 +11,7 @@ import {
 } from "@phosphor-icons/react/ssr";
 import Link from "next/link";
 import { EmptyState } from "@/components/marketplace/empty-state";
+import { AgentAvatar } from "@/components/marketplace/agent-avatar";
 import { AltanaPermissionPanel } from "@/components/partners/altana-permission-panel";
 import { PancakeSwapEvidencePanel } from "@/components/partners/pancakeswap-evidence-panel";
 import { TermiXReportPanel } from "@/components/partners/terminx-report-panel";
@@ -101,6 +102,7 @@ export function AgentDetail({ agent, agentId, telemetry = [] }: AgentDetailProps
       <main className="mx-auto max-w-7xl px-4 pb-28 pt-10 sm:px-6 sm:pt-12 lg:pt-20">
         <section className="grid gap-6 lg:grid-cols-[1fr_22rem] lg:items-start">
           <div>
+            {agent ? <AgentAvatar agent={agent} size="large" /> : null}
             <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
               <span className="inline-flex items-center gap-1.5 rounded-full border border-surface-border bg-surface px-3 py-1.5">
                 <Fingerprint size={14} className="text-brand" />
