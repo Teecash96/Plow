@@ -8,6 +8,7 @@ export { getMarketplaceAgentById, getMarketplaceRegistry } from "./registry";
 export { getHireSetupStatus } from "./hire-setup";
 export { createSandboxJob, saveSandboxJob } from "./sandbox";
 export { getJobProofEvents } from "./job-proof";
+export { parseStrategyActionRequest, strategyActionCategory } from "./strategy-actions";
 export { appendLocalStatus, createLocalJob, getLocalJob, readJobs, updateLocalJob, writeJobs } from "./job-store";
 export type {
   Agent,
@@ -31,6 +32,8 @@ export type {
   EvidenceStatus,
   FundMovingAction,
   FundMovingActionStatus,
+  StrategyAction,
+  StrategyActionKind,
   FreshnessState,
   Job,
   JobMode,

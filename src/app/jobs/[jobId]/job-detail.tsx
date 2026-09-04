@@ -16,6 +16,7 @@ import { JobProofTimeline } from "@/components/jobs/job-proof-timeline";
 import { SetupChecklist } from "@/components/hire/setup-checklist";
 import { AltanaPermissionPanel } from "@/components/partners/altana-permission-panel";
 import { PancakeSwapRebalanceAction } from "@/components/partners/pancakeswap-rebalance-action";
+import { StrategyActionPanel } from "@/components/marketplace/strategy-action-panel";
 import { getCategoryDefinition } from "@/lib/marketplace/categories";
 import { getHireResumeMode } from "@/lib/marketplace/hire-resume";
 import { evaluateRemoteJob, getRemoteJob, JobPersistenceUnavailableError, recoverRemoteFunding, reconcileRemoteJob, submitRemoteJobReview, updateRemoteJob } from "@/lib/marketplace/job-api";
@@ -354,6 +355,7 @@ function JobContent({ job, onJobChange, onExecute, executionBusy, executionError
       </section>
 
       {job.category === "rebalancing" && job.mode !== "simulation" ? <PancakeSwapRebalanceAction job={job} onJobChange={onJobChange} /> : null}
+      {job.mode !== "simulation" ? <StrategyActionPanel job={job} onJobChange={onJobChange} /> : null}
 
       <JobProofTimeline job={job} />
 

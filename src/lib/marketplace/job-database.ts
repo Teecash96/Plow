@@ -4,6 +4,7 @@ import { isAddress } from "viem";
 import { assertPermissionAllows } from "./permission-policy";
 import { applyEscrowObservation, type EscrowObservation } from "./job-lifecycle";
 import { getJobProofEvents, type JobProofEvent } from "./job-proof";
+import { isStrategyAction, materializeStrategyAction, strategyActionCategory, strategyActionMatchesRequest, type StrategyActionRequest } from "./strategy-actions";
 import type { FundMovingAction, Job, JobEscrow, JobExecution, JobReview, JobStatus, JobStatusChange, JobTerms, PaymentReceipt, SessionPermission } from "./types";
 
 const JOB_STATUSES = new Set<JobStatus>([
@@ -297,6 +298,7 @@ export function isJobRecord(value: unknown): value is Job {
     && (value.review === undefined || isJobReview(value.review))
     && (value.publicProof === undefined || typeof value.publicProof === "boolean")
     && (value.fundMovingAction === undefined || isFundMovingAction(value.fundMovingAction))
+    && (value.strategyAction === undefined || isStrategyAction(value.strategyAction))
     && (value.escrow === undefined || isJobEscrow(value.escrow));
 }
 
@@ -1088,6 +1090,69 @@ export async function recordStoredPancakeSwapActionProgress(jobId: string, owner
         WHERE id = ${jobId} AND owner_token_hash = ${ownerTokenHash}
       `;
       return nextJob;
+    });
+  } catch (error) {
+    return rethrowDatabaseError(error);
+  }
+}
+
+export type StoredStrategyActionResult =
+  | { kind: "recorded"; job: Job }
+  | { kind: "already-recorded"; job: Job }
+  | { kind: "not-eligible"; job: Job }
+  | { kind: "not-found" };
+
+function strategyActionJobIsEligible(job: Job, input: StrategyActionRequest) {
+  return job.mode !== "simulation"
+    && job.category === strategyActionCategory(input.kind)
+    && job.status === "active"
+    && Boolean(job.onchainJobId)
+    && job.payment?.status === "paid"
+    && job.permission?.status === "active";
+}
+
+export async function recordStoredStrategyAction(
+  jobId: string,
+  ownerToken: string,
+  input: StrategyActionRequest,
+): Promise<StoredStrategyActionResult> {
+  try {
+    const sql = getSql();
+    const ownerTokenHash = hashOwnerToken(ownerToken);
+    return await sql.begin(async (transaction) => {
+      const rows = await transaction<{ job: unknown }[]>`
+        SELECT job
+        FROM plow_jobs
+        WHERE id = ${jobId} AND owner_token_hash = ${ownerTokenHash}
+        FOR UPDATE
+      `;
+      const currentJob = rows[0]?.job;
+      if (!isJobRecord(currentJob)) return { kind: "not-found" };
+      if (!strategyActionJobIsEligible(currentJob, input)) return { kind: "not-eligible", job: currentJob };
+      if (!currentJob.permission) throw new JobMutationError("An active permission is required before arming this strategy.");
+
+      try {
+        assertPermissionAllows({ permission: currentJob.permission, action: "agent-execution" });
+      } catch (error) {
+        throw new JobMutationError(error instanceof Error ? error.message : "The active permission cannot be used for this strategy.");
+      }
+
+      if (currentJob.strategyAction) {
+        if (strategyActionMatchesRequest(currentJob.strategyAction, input)) return { kind: "already-recorded", job: currentJob };
+        throw new JobMutationError("This job already has a strategy action. Create a new job to change its parameters.");
+      }
+
+      const strategyAction = materializeStrategyAction(input);
+      const nextJob: Job = { ...currentJob, updatedAt: new Date().toISOString(), strategyAction };
+      if (!isJobRecord(nextJob)) throw new JobPersistenceError("The strategy action would create an invalid job record.");
+
+      await transaction`
+        UPDATE plow_jobs
+        SET updated_at = ${nextJob.updatedAt},
+            job = ${transaction.json(serialiseJob(nextJob))}
+        WHERE id = ${jobId} AND owner_token_hash = ${ownerTokenHash}
+      `;
+      return { kind: "recorded", job: nextJob };
     });
   } catch (error) {
     return rethrowDatabaseError(error);

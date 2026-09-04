@@ -390,6 +390,32 @@ export interface FundMovingAction {
   failureReason?: string;
 }
 
+export type StrategyActionKind = "grid-plan" | "yield-route" | "health-monitor";
+
+export type StrategyAction =
+  | {
+      kind: "grid-plan";
+      status: "planned";
+      levels: number;
+      bandPercent: string;
+      createdAt: string;
+    }
+  | {
+      kind: "yield-route";
+      status: "selected";
+      vaultAddress?: string;
+      vaultName: string;
+      assetSymbol?: string;
+      createdAt: string;
+    }
+  | {
+      kind: "health-monitor";
+      status: "monitoring";
+      accountAddress: string;
+      alertThreshold: string;
+      createdAt: string;
+    };
+
 export type JobMode = "live" | "simulation";
 
 export interface JobSimulationStep {
@@ -436,6 +462,7 @@ export interface Job {
   review?: JobReview;
   publicProof?: boolean;
   fundMovingAction?: FundMovingAction;
+  strategyAction?: StrategyAction;
   escrow?: JobEscrow;
   simulation?: JobSimulation;
 }

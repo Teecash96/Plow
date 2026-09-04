@@ -116,6 +116,10 @@ Plow reserves one action per job in Postgres before it requests a wallet transac
 
 This is a bounded token swap, not a PancakeSwap V3 LP range reset. A real range reset needs position ownership, the V3 position manager, ticks, liquidity math, oracle controls, and a separate audited execution contract. Do not label this first action as automated LP management.
 
+### Category action layer
+
+Every live category now has one explicit action record on the job page. Grid trading saves a bounded level and price band plan. Yield optimisation saves a selected route reference. Health factor monitoring arms an account threshold monitor. These three records are plan or alert intents only. They do not place orders, deposit, withdraw, repay, or move funds. Each action requires a paid active job and an active Altana permission, and the server makes the write idempotent so a retry cannot create a second action. A real exchange, vault, or lending write target must be configured and audited before any of these intents can become fund moving actions.
+
 See [HIRE_SETUP.md](./HIRE_SETUP.md) for the full setup checklist and activation steps.
 
 ## Public deployment

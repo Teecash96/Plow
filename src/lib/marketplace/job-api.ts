@@ -1,6 +1,7 @@
 import type { FundMovingAction, Job } from "./types";
 import type { EscrowTransactionEvent } from "./job-lifecycle";
 import { isJobEvaluatorResult, type JobEvaluatorResult } from "./evaluator";
+import type { StrategyActionRequest } from "./strategy-actions";
 
 export type RemoteJobPatch = Partial<Omit<Job, "id" | "createdAt" | "updatedAt">>;
 
@@ -220,4 +221,23 @@ export async function recordRemotePancakeSwapAction(
   }
 
   throw new JobApiError("The jobs service could not record the PancakeSwap action.", 503);
+}
+
+export async function recordRemoteStrategyAction(jobId: string, action: StrategyActionRequest) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const body = await request<{ job?: unknown }>(`/api/jobs/${encodeURIComponent(jobId)}/strategy-action`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(action),
+      });
+      if (!isJob(body.job)) throw new JobApiError("The jobs service returned an invalid strategy action record.", 502);
+      return body.job;
+    } catch (error) {
+      if (!(error instanceof JobPersistenceUnavailableError) || attempt === 2) throw error;
+      await new Promise((resolve) => setTimeout(resolve, (attempt + 1) * 250));
+    }
+  }
+
+  throw new JobApiError("The jobs service could not record the strategy action.", 503);
 }
