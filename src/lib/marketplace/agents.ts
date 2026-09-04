@@ -282,7 +282,8 @@ export const DEMO_AGENTS = [
   },
 ] as const satisfies readonly Agent[];
 
-// Live records will be populated by the future ERC 8004 adapter.
+// Live records are loaded from the ERC 8004 adapter at request time. This
+// static export remains empty so demo fixtures can never masquerade as live.
 export const LIVE_AGENTS: readonly Agent[] = [];
 export const AGENTS: readonly Agent[] = [...DEMO_AGENTS, ...LIVE_AGENTS];
 export const AGENT_REGISTRY = { demo: DEMO_AGENTS, live: LIVE_AGENTS, all: AGENTS } as const;

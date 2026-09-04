@@ -3,6 +3,7 @@
 import { CheckCircle, CircleNotch, ShieldCheck, WarningCircle } from "@phosphor-icons/react";
 import { useState } from "react";
 import { CATEGORY_DEFINITIONS } from "@/lib/marketplace/categories";
+import { getProviderServiceListingId } from "@/lib/marketplace/provider-service";
 import type { AgentCategory, AgentListingMode } from "@/lib/marketplace/types";
 
 export interface ProviderProfileSummary {
@@ -99,7 +100,7 @@ export function ProviderProfileMatrix({ initialProfiles }: { initialProfiles: re
         <div>
           <p className="font-mono text-xs uppercase tracking-[0.16em] text-brand">Four category build</p>
           <h2 id="provider-profile-matrix-title" className="mt-3 text-2xl font-semibold">Provider profile matrix</h2>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-muted">Each category needs a configured ERC 8004 identity, a matching server signer, and a reachable provider service. This check uses read only requests. It does not create an identity or spend funds.</p>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-muted">Each category needs a published service listing, a matching server signer, and a reachable provider service. Shared mode publishes four listings under one ERC 8004 identity. Independent mode uses one identity per provider profile. This check uses read only requests.</p>
         </div>
         <button
           type="button"
@@ -136,8 +137,8 @@ export function ProviderProfileMatrix({ initialProfiles }: { initialProfiles: re
                   <dd className="mt-1 break-all font-mono text-foreground">{profile?.agentId ?? "Add ERC 8004 ID"}</dd>
                 </div>
                 <div>
-                  <dt className="text-muted">Listing</dt>
-                  <dd className="mt-1 text-foreground">{profile?.listingMode === "independent" ? "Independent" : "Shared"}</dd>
+                  <dt className="text-muted">Service listing ID</dt>
+                  <dd className="mt-1 break-all font-mono text-foreground">{profile ? getProviderServiceListingId(profile.agentId, category.id) : "Not published"}</dd>
                 </div>
                 <div>
                   <dt className="text-muted">Signer</dt>
@@ -152,7 +153,7 @@ export function ProviderProfileMatrix({ initialProfiles }: { initialProfiles: re
               {profile ? (
                 <p className="mt-4 border-t border-surface-border pt-3 text-xs leading-5 text-muted">{profile.name} at {profile.price} {profile.currency} per task. {probe?.detail ?? "Run the profile check after the service is deployed."}</p>
               ) : (
-                <p className="mt-4 border-t border-surface-border pt-3 text-xs leading-5 text-muted">{category.description} Add this category to PLOW_PROVIDER_PROFILES with its own identity and signer.</p>
+                <p className="mt-4 border-t border-surface-border pt-3 text-xs leading-5 text-muted">{category.description} Add this category to the provider profile. Shared mode keeps the same identity and signer; independent mode requires a separate profile.</p>
               )}
             </article>
           );

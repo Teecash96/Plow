@@ -111,10 +111,10 @@ export function AgentsBrowser({ agents, initialCategory = "all", liveAgentsCount
             <div className="max-w-3xl">
               <p className="font-mono text-xs uppercase tracking-[0.16em] text-brand">Marketplace</p>
               <h1 className="mt-4 text-4xl font-semibold leading-none tracking-tight text-wrap-balance sm:text-6xl">Browse agents by the decision you need to make</h1>
-              <p className="mt-6 max-w-2xl text-lg leading-7 text-muted text-wrap-pretty">Use the strategy tabs and filters to narrow the field. Only verified agent records can become hireable.</p>
+              <p className="mt-6 max-w-2xl text-lg leading-7 text-muted text-wrap-pretty">Browse connected service listings by strategy. Every listing points to a provider endpoint, a BSC identity, and a paid job flow.</p>
             </div>
             <div className="w-full rounded-2xl border border-surface-border bg-surface px-5 py-4 lg:w-auto lg:min-w-48">
-              <p className="text-xs text-muted">Agent records</p>
+              <p className="text-xs text-muted">Live listings</p>
               <p className="mt-2 font-mono text-3xl text-foreground">{agents.length}</p>
             </div>
           </div>
@@ -170,23 +170,23 @@ export function AgentsBrowser({ agents, initialCategory = "all", liveAgentsCount
             </div>
           </div>
           <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-xs text-muted">
-            <p>{filteredAgents.length} agent records match these filters.</p>
-            <p>Live cards use structured telemetry when a source is connected. Empty values remain honest.</p>
+            <p>{filteredAgents.length} live listings match these filters.</p>
+            <p>Only connected registry records appear here. Empty values remain honest.</p>
           </div>
         </section>
 
         <section className="mt-6 rounded-2xl border border-surface-border bg-surface px-4 py-3 text-sm" aria-live="polite">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="font-mono text-xs uppercase tracking-[0.14em] text-muted">Registry coverage</p>
-            <p className="font-mono text-xs text-muted">{formatCount(scan.scannedBlocks)} blocks scanned · {verifiedLiveAgentsCount} verified live · {liveAgentsCount} live records</p>
+            <p className="font-mono text-xs text-muted">{formatCount(scan.scannedBlocks)} blocks scanned · {verifiedLiveAgentsCount} verified listings · {liveAgentsCount} live listings</p>
           </div>
-          <p className="mt-2 text-xs text-muted">Category tab counts include the four demo fixtures. Live category labels use metadata evidence and can remain Uncategorised.</p>
+          <p className="mt-2 text-xs text-muted">Demo fixtures are excluded from marketplace inventory. Each live listing has one category and a stable service ID.</p>
           {liveStatus === "unavailable" ? (
-            <p className="text-[#e8d995]">Live ERC 8004 discovery is temporarily unavailable. Demo records remain visible. No live agent claims are shown.</p>
+            <p className="text-[#e8d995]">Live ERC 8004 discovery is temporarily unavailable. No listing is shown until its identity and service connection can be checked.</p>
           ) : liveStatus === "stale" ? (
             <p className="text-[#e8d995]">Showing cached live identities while the BSC registry refreshes. The last successful identity read remains visible.</p>
           ) : liveStatus === "empty" ? (
-            <p className="text-muted">No live ERC 8004 registrations were found in the current BSC scan window. Demo records are marked clearly.</p>
+            <p className="text-muted">No connected ERC 8004 service listings were found in the current BSC scan window.</p>
           ) : (
             <p className="text-positive">Live ERC 8004 registrations are shown with identity, service, heartbeat, and provider telemetry status. Performance history remains empty until a verified history source exists.</p>
           )}
@@ -204,10 +204,10 @@ export function AgentsBrowser({ agents, initialCategory = "all", liveAgentsCount
           ) : (
             <EmptyState
               search={Boolean(query || category !== "all" || freshness !== "all" || availability !== "all")}
-              title={agents.length === 0 ? "No agent records are connected yet" : "No agents match these filters"}
-              description={agents.length === 0 ? "The browse surface is ready, but we will not invent listings or performance numbers. Records will appear after the registry or demo source returns data." : "Change the search or filters to see other records."}
-              actionLabel={agents.length === 0 ? "Return home" : "Clear filters"}
-              actionHref={agents.length === 0 ? "/" : "/agents"}
+              title={agents.length === 0 ? "No live agent listings are connected yet" : "No listings match these filters"}
+              description={agents.length === 0 ? "Plow does not display demo agents as marketplace inventory. Connect an ERC 8004 provider with a public execution endpoint, heartbeat, and supported category to publish a listing." : "Change the search or filters to see other listings."}
+              actionLabel={agents.length === 0 ? "Open provider setup" : "Clear filters"}
+              actionHref={agents.length === 0 ? "/provider" : "/agents"}
             />
           )}
         </section>

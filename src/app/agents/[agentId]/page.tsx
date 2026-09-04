@@ -24,8 +24,11 @@ export default async function AgentDetailPage({ params }: AgentDetailPageProps) 
   const { agentId } = await params;
   const agent = await getMarketplaceAgentById(agentId);
   const providerProfile = agent ? getProviderProfileForAgent(agent.identity.agentId, getProviderServiceConfig()) : undefined;
+  const telemetryCategories = agent?.listingId && agent.category !== "uncategorised"
+    ? [agent.category]
+    : providerProfile?.supportedCategories;
   const telemetry = providerProfile
-    ? await Promise.all(providerProfile.supportedCategories.map((category) => buildProviderTelemetrySnapshot(category, { supportedCategories: providerProfile.supportedCategories })))
+    ? await Promise.all((telemetryCategories ?? []).map((category) => buildProviderTelemetrySnapshot(category, { supportedCategories: providerProfile.supportedCategories })))
     : undefined;
   return <AgentDetail agent={agent} agentId={agentId} telemetry={telemetry} />;
 }

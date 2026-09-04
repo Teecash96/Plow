@@ -1,6 +1,6 @@
 # Agent Studio on BNB Chain
 
-Marketplace foundation for discovering ERC 8004 agent identities on BSC Mainnet. Demo records remain visible while live identity data is enriched.
+Marketplace for discovering ERC 8004 agent service listings on BSC Mainnet. Demo fixtures stay out of the public inventory.
 
 ## Getting started
 
@@ -62,7 +62,7 @@ Plow stores the result summary and URI in the durable job record. Failed calls c
 
 Live hiring checks four provider signals: an explicit public HTTPS Plow endpoint, an x402 price, a fresh health heartbeat, and a recent completed paid execution recorded by Plow. The configured provider has a narrow first run exception when its signer and ERC 8004 owner match; that first successful result becomes the required execution evidence. Generic registry URLs and indexer timestamps do not pass. See [HIRE_SETUP.md](./HIRE_SETUP.md) for the metadata contract.
 
-The repository also contains a disabled controlled provider service at `/api/provider/health`, `/api/provider/metadata`, and `/api/provider/execute`. Enable it only on a deployment operated by the ERC 8004 identity owner. The legacy configuration uses one server only `PLOW_PROVIDER_PRIVATE_KEY`. Multi identity configuration uses `PLOW_PROVIDER_PROFILES`, where every profile binds one ERC 8004 agent ID, its category list, price, signer key, and optional service endpoints. In profile mode, the default execution and health URLs include the selected agent ID. The signed execution route selects the profile from the job agent ID before it verifies and submits the job. It accepts paid active jobs only, runs one explicit read only strategy for each required category, submits a deterministic deliverable to ERC 8183, and verifies the confirmed onchain state before returning success.
+The repository also contains a disabled controlled provider service at `/api/provider/health`, `/api/provider/metadata`, and `/api/provider/execute`. Enable it only on a deployment operated by the ERC 8004 identity owner. The legacy configuration uses one server only `PLOW_PROVIDER_PRIVATE_KEY`. Multi identity configuration uses `PLOW_PROVIDER_PROFILES`, where every profile binds one ERC 8004 agent ID, its category list, price, signer key, and optional service endpoints. The marketplace expands every configured category into a stable service listing ID such as `plow-325479-grid-trading`. Shared mode publishes several category listings under one identity. Independent mode uses a separate identity for each profile. In profile mode, the default execution and health URLs include the selected agent ID. The signed execution route selects the profile and category listing from the job before it verifies and submits the job. It accepts paid active jobs only, runs one explicit read only strategy for each required category, submits a deterministic deliverable to ERC 8183, and verifies the confirmed onchain state before returning success.
 
 The four provider strategies are:
 
@@ -71,9 +71,9 @@ The four provider strategies are:
 3. Yield optimisation reads configured ERC 4626 vaults and ranks current assets per share. It does not claim APY when no APY source is connected.
 4. Health factor monitoring reads `getUserAccountData` from a configured lending pool and reports the account health factor against a task threshold.
 
-Every strategy includes the current BSC Mainnet block in its result. Pool, vault, and lending addresses are optional configuration. If a required source is not configured, the provider says so and does not invent a metric or execute a DeFi transaction. Set `PLOW_PROVIDER_POOL_ADDRESS`, `PLOW_PROVIDER_YIELD_VAULTS`, or `PLOW_PROVIDER_LENDING_POOL_ADDRESS` for richer live reads. The provider metadata publishes the supported category list and the `plow-provider-strategies-v1` protocol.
+Every strategy includes the current BSC Mainnet block in its result. Pool, vault, and lending addresses are optional configuration. If a required source is not configured, the provider says so and does not invent a metric or execute a DeFi transaction. Set `PLOW_PROVIDER_POOL_ADDRESS`, `PLOW_PROVIDER_YIELD_VAULTS`, or `PLOW_PROVIDER_LENDING_POOL_ADDRESS` for richer live reads. The provider metadata publishes the supported category list, one service entry and listing ID per category, and the `plow-provider-strategies-v1` protocol.
 
-Provider operators can use `/provider` to register an ERC 8004 identity they control, verify the deployed provider service, and publish its HTTPS metadata URI. The page uses wallet signatures only and keeps the provider request secret server side. One identity may advertise all four categories. Use four controlled identities only when you need four independent marketplace listings. In multi identity mode, publish `/api/provider/metadata?agentId=<agent-id>` for each identity. Each published profile is shown as an independent listing only when its identity, signer, category, price, endpoint, and heartbeat all match.
+Provider operators can use `/provider` to register an ERC 8004 identity they control, verify the deployed provider service, and publish its HTTPS metadata URI. The page uses wallet signatures only and keeps the provider request secret server side. One identity can advertise all four categories and the marketplace shows four named service listings under that identity. Use four controlled identities only when you need independent ownership and signing. In multi identity mode, publish `/api/provider/metadata?agentId=<agent-id>` for each identity. Each published service is shown only when its identity, signer, category, price, endpoint, and heartbeat all match.
 
 ## Real hire path
 

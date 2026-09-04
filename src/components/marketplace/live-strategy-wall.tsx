@@ -9,9 +9,9 @@ import {
 } from "@phosphor-icons/react/ssr";
 import Link from "next/link";
 import { CATEGORY_DEFINITIONS } from "@/lib/marketplace/categories";
-import { getMarketplaceAgentById } from "@/lib/marketplace/registry";
+import { getMarketplaceRegistry } from "@/lib/marketplace/registry";
 import { buildProviderTelemetrySnapshot, type MarketplaceTelemetrySnapshot } from "@/lib/marketplace/provider-strategies";
-import { getProviderServiceConfig } from "@/lib/marketplace/provider-service";
+import { getProviderServiceConfig, getProviderServiceListingId } from "@/lib/marketplace/provider-service";
 import { isAgentHireable, type AgentCategory, type Agent } from "@/lib/marketplace/types";
 
 const categoryIcons = {
@@ -60,7 +60,8 @@ function formatCapture(value: string) {
   return `${new Date(timestamp).toISOString().slice(0, 16).replace("T", " ")} UTC`;
 }
 
-function strategyLink(agent: Agent | undefined, category: AgentCategory) {
+function strategyLink(agent: Agent | undefined, category: AgentCategory, listingId: string) {
+  if (agent?.listingId === listingId) return `/hire/${encodeURIComponent(agent.slug)}`;
   return agent?.slug
     ? `/hire/${encodeURIComponent(agent.slug)}?category=${encodeURIComponent(category)}`
     : `/agents?category=${encodeURIComponent(category)}`;
@@ -90,7 +91,7 @@ function StrategyCard({
   const definition = CATEGORY_DEFINITIONS.find((candidate) => candidate.id === category);
   const Icon = categoryIcons[category];
   const hireable = isAgentHireable(agent);
-  const detailLink = strategyLink(agent, category);
+  const detailLink = strategyLink(agent, category, listingId);
   const displayedMetrics = snapshot.metrics.slice(0, 4);
 
   return (
@@ -99,7 +100,7 @@ function StrategyCard({
         <div className="flex min-w-0 items-start gap-3">
           <span className={`flex shrink-0 items-center justify-center rounded-2xl bg-black text-brand ${compact ? "size-9" : "size-11"}`}><Icon size={compact ? 18 : 22} /></span>
           <div className="min-w-0">
-            <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-brand">Strategy listing</p>
+            <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-brand">{agent ? "Connected service listing" : "Strategy slot"}</p>
             <h3 className={`${compact ? "mt-1 text-lg" : "mt-2 text-xl"} break-words font-semibold tracking-tight`}>{strategyNames[category]}</h3>
             <p className="mt-1 text-xs text-muted">{definition?.label} · {definition?.plainLanguage}</p>
           </div>
@@ -159,7 +160,7 @@ export function StrategyWallSkeleton({ compact = false }: { compact?: boolean })
 export async function LiveStrategyWall({ compact = false }: { compact?: boolean } = {}) {
   const config = getProviderServiceConfig();
   const profile = config.profiles[0];
-  const agent = profile ? await getMarketplaceAgentById(profile.agentId) : undefined;
+  const registry = profile ? await getMarketplaceRegistry() : undefined;
   const snapshots = profile
     ? await Promise.all(CATEGORY_DEFINITIONS.map((category) => buildProviderTelemetrySnapshot(category.id, { supportedCategories: profile.supportedCategories })))
     : CATEGORY_DEFINITIONS.map((category) => previewSnapshot(category.id));
@@ -167,18 +168,22 @@ export async function LiveStrategyWall({ compact = false }: { compact?: boolean 
   return (
     <div className="mt-8 space-y-3">
       {CATEGORY_DEFINITIONS.map((category, index) => (
-        <StrategyCard
-          key={category.id}
-          category={category.id}
-          snapshot={snapshots[index]}
-          agent={agent}
-          providerName={profile?.name ?? "No provider configured"}
-          providerAgentId={profile?.agentId}
-          price={profile?.price}
-          currency={profile?.currency}
-          listingId={profile ? `plow-${profile.agentId}-${category.id}` : `preview-${category.id}`}
-          compact={compact}
-        />
+        (() => {
+          const listingId = profile ? getProviderServiceListingId(profile.agentId, category.id) : `preview-${category.id}`;
+          const agent = registry?.liveAgents.find((candidate) => candidate.listingId === listingId);
+          return <StrategyCard
+            key={category.id}
+            category={category.id}
+            snapshot={snapshots[index]}
+            agent={agent}
+            providerName={agent?.providerName ?? profile?.name ?? "No provider configured"}
+            providerAgentId={agent?.identity.agentId ?? profile?.agentId}
+            price={agent?.pricing.amount ?? profile?.price}
+            currency={agent?.pricing.currency ?? profile?.currency}
+            listingId={listingId}
+            compact={compact}
+          />;
+        })()
       ))}
     </div>
   );

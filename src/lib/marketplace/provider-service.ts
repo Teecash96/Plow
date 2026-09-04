@@ -104,6 +104,10 @@ export interface ProviderRequestVerification {
   reason?: string;
 }
 
+export function getProviderServiceListingId(agentId: string, category: AgentCategory) {
+  return `plow-${agentId}-${category}`;
+}
+
 export class ProviderServiceRequestError extends Error {
   readonly status: 400 | 409 | 413;
 
@@ -558,6 +562,12 @@ export function parseProviderExecutionRequest(body: string, config = getProvider
   if (!AGENT_CATEGORIES.includes(category as AgentCategory) || !profile.supportedCategories.includes(category as AgentCategory)) {
     throw new ProviderServiceRequestError("The provider does not support this job category.", 409);
   }
+  const serviceCategory = category as AgentCategory;
+  const expectedListingId = getProviderServiceListingId(profile.agentId, serviceCategory);
+  const legacyAgentListingId = `erc8004-bsc-${profile.agentId}`;
+  if (marketplaceAgentId !== expectedListingId && marketplaceAgentId !== legacyAgentListingId) {
+    throw new ProviderServiceRequestError("The marketplace listing does not match the provider service category.", 409);
+  }
   if (!isRecord(payment) || payment.status !== "paid") {
     throw new ProviderServiceRequestError("The provider accepts paid jobs only.", 409);
   }
@@ -631,6 +641,26 @@ export function buildProviderRegistrationMetadata(
     ?? endpointFromBase(config.publicBaseUrl, PROVIDER_TELEMETRY_PATH);
   if (!executionEndpoint || !healthEndpoint) return undefined;
 
+  const services = profile.supportedCategories.map((category) => ({
+    name: `${getCategoryDefinition(category)?.label ?? category} service`,
+    protocol: AGENT_EXECUTION_PROTOCOL,
+    endpoint: executionEndpoint,
+    category,
+    listingId: getProviderServiceListingId(profile.agentId, category),
+  }));
+  const listings = profile.supportedCategories.map((category) => ({
+    id: getProviderServiceListingId(profile.agentId, category),
+    name: getCategoryDefinition(category)?.label ?? category,
+    category,
+    providerAgentId: profile.agentId,
+    executionEndpoint,
+    healthEndpoint,
+    ...(telemetryEndpoint ? { telemetryEndpoint } : {}),
+    price: profile.price,
+    currency: profile.currency,
+    network: "BSC Mainnet",
+  }));
+
   return {
     type: "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
     schemaVersion: "plow-agent-registration-v1",
@@ -643,18 +673,13 @@ export function buildProviderRegistrationMetadata(
         agentId: profile.agentId,
       },
     ],
-    services: [
-      {
-        name: "Plow execution",
-        protocol: AGENT_EXECUTION_PROTOCOL,
-        endpoint: executionEndpoint,
-      },
-    ],
+    services,
     plow: {
       profile: {
         mode: config.profileMode ? "independent" : "shared",
         agentId: profile.agentId,
         category: profile.supportedCategories.length === 1 ? profile.supportedCategories[0] : undefined,
+        listingIds: profile.supportedCategories.map((category) => getProviderServiceListingId(profile.agentId, category)),
       },
       health: { endpoint: healthEndpoint },
       telemetry: telemetryEndpoint ? { endpoint: telemetryEndpoint } : undefined,
@@ -666,8 +691,10 @@ export function buildProviderRegistrationMetadata(
       },
       strategyProtocol: "plow-provider-strategies-v1",
       supportedCategories: profile.supportedCategories,
+      listings,
       strategies: profile.supportedCategories.map((category) => ({
         id: category,
+        listingId: getProviderServiceListingId(profile.agentId, category),
         name: getCategoryDefinition(category)?.label ?? category,
         mode: "read-only analysis",
         dataSource: "BSC Mainnet RPC",

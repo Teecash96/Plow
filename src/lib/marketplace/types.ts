@@ -228,6 +228,9 @@ export interface AgentReputation {
 export interface Agent {
   id: string;
   slug: string;
+  listingId?: string;
+  providerName?: string;
+  parentAgentId?: string;
   name: string;
   tagline: string;
   mode: AgentMode;

@@ -56,10 +56,12 @@ export function AgentCard({ agent, selected = false, onToggleCompare }: AgentCar
           </div>
           <h2 className="mt-4 break-words text-2xl font-semibold tracking-tight text-wrap-balance">{agent.name}</h2>
           <p className="mt-1 break-all font-mono text-xs text-muted">Marketplace ID · {agent.id}</p>
+          {agent.listingId && agent.listingId !== agent.id ? <p className="mt-1 break-all font-mono text-xs text-muted">Service listing ID · {agent.listingId}</p> : null}
           <p className="mt-1 break-all font-mono text-xs text-muted">ERC 8004 ID · {agent.identity.agentId}</p>
+          {agent.providerName ? <p className="mt-1 break-words text-xs text-muted">Provider · {agent.providerName}</p> : null}
           <div className="mt-3 flex flex-wrap gap-2">
             {agent.mode === "demo" ? <span className="inline-flex rounded-full border border-[#9a843c] bg-[#211d0d] px-2.5 py-1 text-xs font-semibold text-[#e8d995]">Demo fixture</span> : isLiveVerified ? <span className="inline-flex rounded-full border border-[#5a9876] bg-[#10261c] px-2.5 py-1 text-xs font-semibold text-positive">Live on BSC</span> : <span className="inline-flex rounded-full border border-[#9a843c] bg-[#211d0d] px-2.5 py-1 text-xs font-semibold text-warning">Registry candidate</span>}
-            {agent.listingMode === "independent" ? <span className="inline-flex rounded-full border border-brand/50 bg-brand/10 px-2.5 py-1 text-xs font-semibold text-brand">Independent listing</span> : agent.supportedCategories && agent.supportedCategories.length > 1 ? <span className="inline-flex rounded-full border border-surface-border px-2.5 py-1 text-xs font-semibold text-muted">Shared multi strategy</span> : null}
+            {agent.listingMode === "independent" ? <span className="inline-flex rounded-full border border-brand/50 bg-brand/10 px-2.5 py-1 text-xs font-semibold text-brand">Independent listing</span> : agent.listingId ? <span className="inline-flex rounded-full border border-surface-border px-2.5 py-1 text-xs font-semibold text-muted">Shared identity service</span> : agent.supportedCategories && agent.supportedCategories.length > 1 ? <span className="inline-flex rounded-full border border-surface-border px-2.5 py-1 text-xs font-semibold text-muted">Shared multi strategy</span> : null}
           </div>
           {strategyCategories.length > 1 ? <div className="mt-3 flex flex-wrap gap-1.5" aria-label="Strategy offering IDs">
             {strategyCategories.map((strategyCategory) => <a key={strategyCategory} href={`/hire/${agent.slug}?category=${encodeURIComponent(strategyCategory)}`} className="rounded-full border border-surface-border px-2 py-1 font-mono text-[10px] text-muted hover:border-[#6a6a6a] hover:text-foreground">{strategyCategory} · plow-{agent.identity.agentId}-{strategyCategory}</a>)}
@@ -120,6 +122,10 @@ export function AgentCard({ agent, selected = false, onToggleCompare }: AgentCar
         <div className="flex items-center justify-between gap-4">
           <dt className="flex items-center gap-2 text-muted"><Heartbeat size={15} /> Status</dt>
           <dd className="min-w-0 break-words text-right font-semibold capitalize">{agent.mode === "demo" ? "Demo only" : isLiveVerified ? "Live on BSC" : "Verification pending"}</dd>
+        </div>
+        <div className="flex items-center justify-between gap-4">
+          <dt className="text-muted">Connection</dt>
+          <dd className="min-w-0 break-words text-right font-semibold">{agent.hiring.service?.endpointVerified ? "Endpoint verified" : "Not connected"}</dd>
         </div>
         <div className="flex items-center justify-between gap-4">
           <dt className="flex items-center gap-2 text-muted"><Clock size={15} /> Last heartbeat</dt>

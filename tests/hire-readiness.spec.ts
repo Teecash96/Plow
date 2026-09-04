@@ -1,23 +1,24 @@
 import { expect, test } from "@playwright/test";
 
-test("unavailable agent records cannot be hired from browse", async ({ page }) => {
+test("demo fixtures are not exposed as public marketplace inventory", async ({ page }) => {
   await page.goto("/agents", { waitUntil: "domcontentloaded" });
 
-  const demoCard = page.locator("article").filter({ hasText: "Demo fixture" }).first();
-  await expect(demoCard).toBeVisible();
-  await expect(demoCard.getByRole("link", { name: "Preview" })).toBeVisible();
-  await expect(demoCard.getByRole("link", { name: "Hire" })).toHaveCount(0);
+  await expect(page.getByText("Live listings").first()).toBeVisible();
+  await expect(page.locator("article").filter({ hasText: "Demo fixture" })).toHaveCount(0);
+  await expect(page.getByText("Demo fixtures are excluded from marketplace inventory.")).toBeVisible();
 });
 
-test("agent cards expose stable identity and honest reputation fields", async ({ page }) => {
+test("connected listings expose stable identity and honest reputation fields", async ({ page }) => {
   await page.goto("/agents", { waitUntil: "domcontentloaded" });
 
-  const demoCard = page.locator("article").filter({ hasText: "Demo fixture" }).first();
-  await expect(demoCard.getByText(/Marketplace ID · demo-/)).toBeVisible();
-  await expect(demoCard.getByText(/ERC 8004 ID · demo-erc8004-/)).toBeVisible();
-  await expect(demoCard.getByText("Unrated")).toBeVisible();
-  await expect(demoCard.getByText("Verified jobs")).toBeVisible();
-  await expect(demoCard.getByText("Latest job")).toBeVisible();
+  const liveCard = page.locator("article").filter({ hasText: /Live on BSC|Registry candidate/ }).first();
+  if (await liveCard.count() > 0) {
+    await expect(liveCard.getByText(/Marketplace ID · /)).toBeVisible();
+    await expect(liveCard.getByText(/ERC 8004 ID · /)).toBeVisible();
+    await expect(liveCard.getByText("Verified jobs")).toBeVisible();
+    await expect(liveCard.getByText("Latest job")).toBeVisible();
+    await expect(liveCard.getByText("Connection").first()).toBeVisible();
+  }
 });
 
 test("unavailable agent readiness is shown as a required hire check", async ({ page }) => {

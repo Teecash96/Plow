@@ -117,7 +117,8 @@ export function AgentDetail({ agent, agentId, telemetry = [] }: AgentDetailProps
             <h1 className="mt-4 break-words text-4xl font-semibold leading-none tracking-tight text-wrap-balance sm:text-6xl">{agent?.name ?? `Agent ${agentId}`}</h1>
             <p className="mt-5 max-w-2xl text-lg leading-7 text-muted text-wrap-pretty">{agent?.description ?? "This agent profile is ready for an identity, deployment record, category metrics, and evidence sources."}</p>
             {agent ? <p className="mt-5 break-all font-mono text-xs text-muted">Marketplace ID · {agent.id}</p> : null}
-            {agent?.listingMode === "shared" && agent.supportedCategories && agent.supportedCategories.length > 1 ? <p className="mt-3 text-sm text-brand">Shared agent with {agent.supportedCategories.length} strategy services. Each service has its own Plow listing ID and job IDs are generated after activation.</p> : null}
+            {agent?.providerName ? <p className="mt-3 text-sm text-muted">Provider · {agent.providerName} · ERC 8004 identity #{agent.identity.agentId}</p> : null}
+            {agent?.listingId ? <p className="mt-3 text-sm text-brand">This is the {category?.label ?? "category"} service listing {agent.listingId}. It uses the provider endpoint above and receives a new job ID for every paid activation.</p> : agent?.listingMode === "shared" && agent.supportedCategories && agent.supportedCategories.length > 1 ? <p className="mt-3 text-sm text-brand">Shared agent with {agent.supportedCategories.length} strategy services. The marketplace publishes one service listing per category under this ERC 8004 identity.</p> : null}
           </div>
           <div className="rounded-3xl border border-surface-border bg-surface p-5">
             <p className="text-xs text-muted">Profile readiness</p>
@@ -132,8 +133,8 @@ export function AgentDetail({ agent, agentId, telemetry = [] }: AgentDetailProps
         </section>
 
         <section className="mt-10 grid gap-4 md:grid-cols-2 xl:grid-cols-4" aria-label="Agent status">
-          <DetailMetric label="Agent ID" value={valueOrPending(agent?.identity.agentId)} detail="ERC 8004 registry record" />
-          <DetailMetric label="Marketplace ID" value={valueOrPending(agent?.id)} detail="Stable Plow listing identifier" />
+          <DetailMetric label="ERC 8004 ID" value={valueOrPending(agent?.identity.agentId)} detail="On chain identity record" />
+          <DetailMetric label="Marketplace ID" value={valueOrPending(agent?.listingId ?? agent?.id)} detail="Stable service listing identifier" />
           <DetailMetric label="Rating" value={ratingValue(agent)} detail={ratingDetail(agent)} />
           <DetailMetric label="Verified jobs" value={verifiedJobsValue(agent)} detail="Paid and completed Plow jobs" />
           <DetailMetric label="Latest job" value={latestJobValue(agent)} detail={agent?.reputation.latestJobId ? "Latest verified Plow job ID" : "Job IDs are generated per hire"} />
@@ -173,7 +174,8 @@ export function AgentDetail({ agent, agentId, telemetry = [] }: AgentDetailProps
               <dl className="mt-8 space-y-4 text-sm">
                 <div className="flex items-start justify-between gap-4 border-b border-surface-border pb-4"><dt className="text-muted">Network</dt><dd className="font-semibold">BSC Mainnet</dd></div>
                 <div className="flex items-start justify-between gap-4 border-b border-surface-border pb-4"><dt className="text-muted">Chain ID</dt><dd className="font-mono">56</dd></div>
-                <div className="flex items-start justify-between gap-4"><dt className="text-muted">Current status</dt><dd className="inline-flex items-center gap-1.5 font-semibold"><span className={`size-2 rounded-full ${agent?.mode === "live" && agent.verified ? "bg-positive" : "bg-[#6a6a6a]"}`} /> {agent?.mode === "live" && agent.verified ? "Live identity" : agent?.mode === "live" ? "Verification pending" : "Not verified"}</dd></div>
+                <div className="flex items-start justify-between gap-4"><dt className="text-muted">Current status</dt><dd className="inline-flex items-center gap-1.5 font-semibold"><span className={`size-2 rounded-full ${agent?.hiring.service?.available ? "bg-positive" : "bg-[#6a6a6a]"}`} /> {agent?.hiring.service?.available ? "Connected and ready" : agent?.mode === "live" && agent.verified ? "Identity verified, service pending" : agent?.mode === "live" ? "Verification pending" : "Not verified"}</dd></div>
+                <div className="flex items-start justify-between gap-4"><dt className="text-muted">Connection</dt><dd className="text-right text-xs">{agent?.hiring.service?.endpointVerified ? "Public endpoint verified" : "Endpoint not verified"}</dd></div>
                 <div className="flex items-start justify-between gap-4"><dt className="text-muted">Service endpoint</dt><dd className="max-w-[16rem] break-all text-right text-xs">{agent?.identity.serviceUri ?? "Not published"}</dd></div>
                 <div className="flex items-start justify-between gap-4"><dt className="text-muted">Other endpoints</dt><dd className="max-w-[16rem] break-all text-right text-xs">{agent?.identity.endpoints?.length ? agent.identity.endpoints.join(", ") : "Not published"}</dd></div>
               </dl>
@@ -186,7 +188,7 @@ export function AgentDetail({ agent, agentId, telemetry = [] }: AgentDetailProps
             <div className="flex flex-wrap items-end justify-between gap-4">
               <div>
                 <p className="font-mono text-xs uppercase tracking-[0.16em] text-brand">Live strategy telemetry</p>
-                <h2 id="telemetry-heading" className="mt-3 text-3xl font-semibold tracking-tight">Current BSC state for every service</h2>
+                <h2 id="telemetry-heading" className="mt-3 text-3xl font-semibold tracking-tight">Current BSC state {agent?.listingId ? "for this service" : "for every service"}</h2>
                 <p className="mt-4 max-w-3xl text-base leading-6 text-muted">These are read only Mainnet snapshots. They show what the provider can read now. They are not historical performance claims and they do not move funds.</p>
               </div>
             </div>

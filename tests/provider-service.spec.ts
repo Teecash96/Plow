@@ -11,6 +11,7 @@ import {
   getProviderProfileExecutionUrl,
   getProviderProfileHealthUrl,
   getProviderProfileMetadataUrl,
+  getProviderServiceListingId,
   parseProviderExecutionRequest,
   providerEndpointMatches,
   readProviderRequestBody,
@@ -119,14 +120,35 @@ test("returns a fresh heartbeat and publishable metadata", async () => {
 
   const metadata = await metadataGET();
   expect(metadata.status).toBe(200);
-  await expect(metadata.json()).resolves.toMatchObject({
+  const metadataBody = await metadata.json();
+  expect(metadataBody).toMatchObject({
     type: "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
     agentId: "42",
     registrations: [{ agentRegistry: "eip155:56:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432", agentId: "42" }],
-    services: [{ protocol: AGENT_EXECUTION_PROTOCOL, endpoint: "https://provider.example/api/provider/execute" }],
     plow: {
       health: { endpoint: "https://provider.example/api/provider/health" },
       x402: { supported: true, amount: "0.25", currency: "USDC" },
+      },
+  });
+  expect(metadataBody.services[0]).toMatchObject({ protocol: AGENT_EXECUTION_PROTOCOL, endpoint: "https://provider.example/api/provider/execute" });
+  expect(metadataBody.services).toHaveLength(4);
+  expect(metadataBody.services.map((service: { listingId: string }) => service.listingId)).toEqual([
+    getProviderServiceListingId("42", "rebalancing"),
+    getProviderServiceListingId("42", "grid-trading"),
+    getProviderServiceListingId("42", "yield-optimisation"),
+    getProviderServiceListingId("42", "health-factor-monitoring"),
+  ]);
+  expect(metadataBody.plow.listings).toHaveLength(4);
+});
+
+test("health identifies the selected category listing", async () => {
+  const response = await healthGET(new NextRequest("https://provider.example/api/provider/health?agentId=42&category=grid-trading"));
+  expect(response.status).toBe(200);
+  await expect(response.json()).resolves.toMatchObject({
+    agentId: "42",
+    service: {
+      listingId: getProviderServiceListingId("42", "grid-trading"),
+      category: "grid-trading",
     },
   });
 });
@@ -159,6 +181,7 @@ test("binds metadata, health, and execution to the selected provider profile", a
   const payload = JSON.parse(executionBody()) as { job: Record<string, unknown> };
   payload.job.agentId = "43";
   payload.job.agentIdentityId = "43";
+  payload.job.marketplaceAgentId = getProviderServiceListingId("43", "grid-trading");
   payload.job.category = "grid-trading";
   payload.job.price = "0.50";
   payload.job.payment = {
@@ -244,6 +267,14 @@ test("rejects a category that belongs to another provider profile", () => {
   payload.job.payment = { status: "paid", amount: "0.50", currency: "USDC", transactionHash: `0x${"1".repeat(64)}` };
 
   expect(() => parseProviderExecutionRequest(JSON.stringify(payload))).toThrow("provider does not support this job category");
+});
+
+test("binds a paid request to the selected category listing", () => {
+  const payload = JSON.parse(executionBody()) as { job: Record<string, unknown> };
+  payload.job.category = "grid-trading";
+  payload.job.marketplaceAgentId = getProviderServiceListingId("42", "rebalancing");
+
+  expect(() => parseProviderExecutionRequest(JSON.stringify(payload))).toThrow("marketplace listing does not match");
 });
 
 test("fails closed on duplicate provider profile identities", () => {

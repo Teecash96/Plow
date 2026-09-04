@@ -21,5 +21,5 @@ export default async function AgentsPage({ searchParams }: AgentsPageProps) {
   const initialCategory = rawCategory === "all" || rawCategory === "uncategorised" || AGENT_CATEGORIES.includes(rawCategory as (typeof AGENT_CATEGORIES)[number])
     ? rawCategory as RegistryCategory | "all"
     : undefined;
-  return <AgentsBrowser agents={registry.agents} initialCategory={initialCategory} liveAgentsCount={registry.liveAgents.length} verifiedLiveAgentsCount={registry.verifiedLiveAgentsCount} liveStatus={registry.liveStatus} scan={registry.scan} />;
+  return <AgentsBrowser agents={registry.liveAgents} initialCategory={initialCategory} liveAgentsCount={registry.liveAgents.length} verifiedLiveAgentsCount={registry.verifiedLiveAgentsCount} liveStatus={registry.liveStatus} scan={registry.scan} />;
 }
